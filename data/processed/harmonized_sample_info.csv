@@ -1,0 +1,43 @@
+,sample_id,source,group,batch
+GSM629719,GSM629719,Endometrium,ectopic,GSE25628
+GSM629720,GSM629720,Endometrium,eutopic,GSE25628
+GSM629721,GSM629721,Endometrium,ectopic,GSE25628
+GSM629722,GSM629722,Endometrium,normal,GSE25628
+GSM629723,GSM629723,Endometrium,ectopic,GSE25628
+GSM629724,GSM629724,Endometrium,normal,GSE25628
+GSM629725,GSM629725,Endometrium,normal,GSE25628
+GSM629726,GSM629726,Endometrium,ectopic,GSE25628
+GSM629727,GSM629727,Endometrium,normal,GSE25628
+GSM629728,GSM629728,Endometrium,ectopic,GSE25628
+GSM629729,GSM629729,Endometrium,normal,GSE25628
+GSM629730,GSM629730,Endometrium,ectopic,GSE25628
+GSM629731,GSM629731,Endometrium,eutopic,GSE25628
+GSM629732,GSM629732,Endometrium,ectopic,GSE25628
+GSM629733,GSM629733,Endometrium,eutopic,GSE25628
+GSM629734,GSM629734,Endometrium,eutopic,GSE25628
+GSM629735,GSM629735,Endometrium,normal,GSE25628
+GSM629736,GSM629736,Endometrium,eutopic,GSE25628
+GSM629737,GSM629737,Endometrium,eutopic,GSE25628
+GSM629738,GSM629738,Endometrium,eutopic,GSE25628
+GSM629739,GSM629739,Endometrium,eutopic,GSE25628
+GSM629740,GSM629740,Endometrium,ectopic,GSE25628
+GSM175766,GSM175766,Female - caucasian - E-01-M,diseased,GSE7305
+GSM175767,GSM175767,Female - caucasian - E-02-M,diseased,GSE7305
+GSM175768,GSM175768,Female - caucasian - E-04-M,diseased,GSE7305
+GSM175769,GSM175769,Female - caucasian - E-05-M,diseased,GSE7305
+GSM175770,GSM175770,Female - caucasian - E-06-M,diseased,GSE7305
+GSM175771,GSM175771,Female - caucasian - E-02-G,diseased,GSE7305
+GSM175772,GSM175772,Female - caucasian - E-03-G,diseased,GSE7305
+GSM175773,GSM175773,Female - caucasian - E-05-G,diseased,GSE7305
+GSM175774,GSM175774,Female - caucasian - E-06-G,diseased,GSE7305
+GSM175775,GSM175775,Female - caucasian - E-08-G,diseased,GSE7305
+GSM175776,GSM175776,Female - caucasian - N-01-M,normal,GSE7305
+GSM175777,GSM175777,Female - caucasian - N-02-M,normal,GSE7305
+GSM175778,GSM175778,Female - caucasian - N-04-M,normal,GSE7305
+GSM175779,GSM175779,Female - caucasian - N-05-M,normal,GSE7305
+GSM175780,GSM175780,Female - caucasian - N-06-M,normal,GSE7305
+GSM175781,GSM175781,Female - caucasian - N-02-G,normal,GSE7305
+GSM175782,GSM175782,Female - caucasian - N-03-G,normal,GSE7305
+GSM175783,GSM175783,Female - caucasian - N-05-G,normal,GSE7305
+GSM175784,GSM175784,Female - caucasian - N-06-G,normal,GSE7305
+GSM175785,GSM175785,Female - caucasian - N-08-G,normal,GSE7305

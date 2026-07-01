@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+.RDataTmp
+.RDataTmp
+.RDataTmp1
+.Rhistory
+.RDataTmp
+.RDataTmp
+.RDataTmp1
