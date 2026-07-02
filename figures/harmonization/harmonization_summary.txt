@@ -1,0 +1,25 @@
+======================================================================
+HARMONIZATION QC SUMMARY
+======================================================================
+
+DATASET OVERVIEW:
+  - GSE25628: 22 samples, 22277 probes
+  - GSE7305:  20 samples, 54675 probes
+  - Common probes: 22277
+  - Total samples after merge: 42
+
+BATCH CORRECTION:
+  - Method: ComBat
+  - Before correction - PC1: 46.30%, PC2: 17.58%
+  - After correction - PC1: 32.23%, PC2: 15.97%
+  - PC1 change: -14.07%
+
+GROUP DISTRIBUTION:
+  - normal: 16 samples
+  - diseased: 10 samples
+  - ectopic: 8 samples
+  - eutopic: 8 samples
+
+BATCH DISTRIBUTION:
+  - GSE25628: 22 samples
+  - GSE7305: 20 samples

@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 PROJECT 1: ENDOMETRIOSIS TRANSCRIPTOMICS
-PHASE 3b: DIFFERENTIAL IMMUNE INFILTRATION STATISTICAL TESTING (FDR & POST-HOC)
+PHASE 3b: DIFFERENTIAL IMMUNE INFILTRATION STATISTICAL TESTING
 """
 
 import os
+import sys
+import argparse
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -14,15 +16,32 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
 # ============================================================================
-# 1. CONFIGURATION & PATHS
+# 1. CONFIGURATION - DYNAMIC PATH DETECTION
 # ============================================================================
-PROJECT_DIR = r"C:\Users\Yasna\OneDrive\Belgeler\endometriosis-transcriptomic-analysis"
+parser = argparse.ArgumentParser(description="Phase 3b: Differential Immune Stats")
+parser.add_argument("--project_root", default=os.getcwd(), 
+                    help="Project root directory")
+args = parser.parse_args()
 
-ENRICHMENT_SCORES_PATH = os.path.join(PROJECT_DIR, "results", "immune_profiling", "authentic_immune_enrichment_scores.csv")
+PROJECT_DIR = args.project_root
+
+# Auto-detect if running from scripts folder
+if not os.path.exists(os.path.join(PROJECT_DIR, "data")):
+    parent_dir = os.path.dirname(PROJECT_DIR)
+    if os.path.exists(os.path.join(parent_dir, "data")):
+        PROJECT_DIR = parent_dir
+
+print(f"Project directory: {PROJECT_DIR}")
+
+ENRICHMENT_SCORES_PATH = os.path.join(PROJECT_DIR, "results", "immune_profiling", 
+                                      "authentic_immune_enrichment_scores.csv")
 SAMPLE_INFO_PATH = os.path.join(PROJECT_DIR, "data", "processed", "harmonized_sample_info.csv")
 
 RESULTS_DIR = os.path.join(PROJECT_DIR, "results", "immune_profiling")
 FIGURES_DIR = os.path.join(PROJECT_DIR, "figures", "immune_profiling")
+
+os.makedirs(RESULTS_DIR, exist_ok=True)
+os.makedirs(FIGURES_DIR, exist_ok=True)
 
 # ============================================================================
 # 2. LOAD & PREPARE DATA
@@ -142,8 +161,8 @@ for i, (_, row) in enumerate(top_6_targets.iterrows()):
     
     # Generate hybrid Box+Strip charts for high publication clarity
     sns.boxplot(
-        data=df_plot_sig, x='Group', y='Score', order=groups_list,
-        palette=palette_colors, ax=ax, width=0.5, fliersize=0
+        data=df_plot_sig, x='Group', y='Score', hue='Group', order=groups_list,
+        palette=palette_colors, ax=ax, width=0.5, fliersize=0, legend=False
     )
     sns.stripplot(
         data=df_plot_sig, x='Group', y='Score', order=groups_list,

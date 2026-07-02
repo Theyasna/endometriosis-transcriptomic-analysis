@@ -5,16 +5,24 @@
 Project: Endometriosis Transcriptomics
 Datasets: GSE25628 and GSE7305
 Python script for downloading, processing, and QC with color coding.
+FIXED VERSION - All improvements applied
 """
 
 import os
 import re
+import sys
+import warnings
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import pdist, squareform
 from sklearn.manifold import MDS
 import GEOparse
+
+# Suppress warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="pandas")
+warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # ============================================================================
 # Helper functions
@@ -140,26 +148,44 @@ def plot_density(expr_df, sample_colors, group_colors, title, outfile):
     plt.close()
 
 def plot_mds(expr_df, sample_colors, group_colors, title, outfile):
-    """MDS plot using sklearn's MDS."""
+    """MDS plot using sklearn's MDS - FIXED for current sklearn version."""
     # Transpose so samples are rows
     data = expr_df.T
+    
+    # Handle potential NA values
+    if data.isna().any().any():
+        print("Warning: NA values found in MDS input. Using complete cases.")
+        data = data.dropna()
+    
+    # Calculate distance matrix
     dist = pdist(data, metric='euclidean')
     dist_sq = squareform(dist)
-    mds = MDS(n_components=2, dissimilarity='precomputed', random_state=42)
+    
+    # FIX: Use metric=True instead of dissimilarity='precomputed'
+    mds = MDS(n_components=2, metric=True, random_state=42, n_init=1)
     coords = mds.fit_transform(dist_sq)
+    
     # Build color list in the same order as data.index (sample IDs)
     color_list = [sample_colors[sample] for sample in data.index]
+    
     fig, ax = plt.subplots(figsize=(10, 8))
     for i, (x, y) in enumerate(coords):
         ax.scatter(x, y, color=color_list[i], s=80, alpha=0.7)
+    
+    # Add sample labels (optional)
+    for i, sample in enumerate(data.index):
+        ax.annotate(sample, (coords[i, 0], coords[i, 1]), fontsize=8, alpha=0.6)
+    
     ax.set_title(title)
     ax.set_xlabel("MDS Dimension 1")
     ax.set_ylabel("MDS Dimension 2")
+    
     from matplotlib.patches import Patch
     legend_elements = [Patch(facecolor=col, label=lab) for lab, col in group_colors.items()]
     ax.legend(handles=legend_elements, loc='upper right')
+    
     plt.tight_layout()
-    plt.savefig(outfile)
+    plt.savefig(outfile, dpi=300, bbox_inches='tight')
     plt.close()
 
 def plot_mean_barplot(expr_df, sample_colors, group_colors, title, outfile):
@@ -198,7 +224,7 @@ def process_geo(geo_id, project_root, patterns, group_colors, log_transform=Fals
     # 1. Download GEO data (include full data tables)
     print(f"Downloading {geo_id} from GEO...")
     try:
-        gse = GEOparse.get_GEO(geo=geo_id, destdir=data_raw, include_data=True)
+        gse = GEOparse.get_GEO(geo=geo_id, destdir=data_raw, include_data=True, silent=True)
     except Exception as e:
         print(f"Error downloading {geo_id}: {e}")
         return
@@ -213,41 +239,90 @@ def process_geo(geo_id, project_root, patterns, group_colors, log_transform=Fals
     # Get the first sample to identify column names
     first_sample = gse.gsms[sample_ids[0]]
     sample_table = first_sample.table
-    # Identify the probe ID column and value column
+    
+    # Identify the probe ID column and value column - MORE ROBUST
     id_col = None
     value_col = None
+    
+    # Common probe ID column names
+    id_patterns = ['id', 'probe', 'probeid', 'spot_id', 'SPOT_ID']
+    value_patterns = ['value', 'signal', 'intensity', 'VALUE']
+    
     for col in sample_table.columns:
-        if 'id' in col.lower() or 'probe' in col.lower():
+        col_lower = col.lower()
+        if any(p in col_lower for p in id_patterns):
             id_col = col
-        if 'value' in col.lower():
+        if any(p in col_lower for p in value_patterns):
             value_col = col
+    
     if id_col is None or value_col is None:
         # Fallback: assume first column is ID, second is value
         id_col = sample_table.columns[0]
-        value_col = sample_table.columns[1]
-    print(f"Using ID column: '{id_col}', value column: '{value_col}'")
+        value_col = sample_table.columns[1] if len(sample_table.columns) > 1 else sample_table.columns[0]
+        print(f"Using fallback: ID column '{id_col}', value column '{value_col}'")
+    else:
+        print(f"Using ID column: '{id_col}', value column: '{value_col}'")
     
-    # Build expression DataFrame: probes as index, samples as columns
+    # Build expression DataFrame with better error handling
     expr_dict = {}
     for gsm_id in sample_ids:
-        sample = gse.gsms[gsm_id]
-        if id_col not in sample.table.columns or value_col not in sample.table.columns:
-            print(f"Warning: sample {gsm_id} missing expected columns. Skipping.")
+        try:
+            sample = gse.gsms[gsm_id]
+            if id_col not in sample.table.columns or value_col not in sample.table.columns:
+                print(f"Warning: sample {gsm_id} missing expected columns. Skipping.")
+                continue
+            
+            # Extract and clean
+            ser = sample.table.set_index(id_col)[value_col]
+            
+            # Remove rows with NA or invalid values
+            ser = ser[pd.to_numeric(ser, errors='coerce').notna()]
+            
+            if len(ser) == 0:
+                print(f"Warning: sample {gsm_id} has no valid expression data. Skipping.")
+                continue
+                
+            expr_dict[gsm_id] = ser
+        except Exception as e:
+            print(f"Warning: could not process sample {gsm_id}: {e}")
             continue
-        ser = sample.table.set_index(id_col)[value_col]
-        expr_dict[gsm_id] = ser
     
+    if not expr_dict:
+        print(f"ERROR: No valid samples found for {geo_id}. Check column names.")
+        return
+    
+    # Create DataFrame and align probes
     expr_df = pd.DataFrame(expr_dict)
+    
+    # Remove probes with all NA
+    expr_df = expr_df.dropna(how='all')
+    
+    # Remove samples with too many NAs (optional)
+    na_threshold = 0.5  # 50% missing
+    samples_to_keep = expr_df.columns[expr_df.isna().mean() < na_threshold]
+    if len(samples_to_keep) < len(expr_df.columns):
+        print(f"Removing {len(expr_df.columns) - len(samples_to_keep)} samples with >{na_threshold*100}% NAs")
+        expr_df = expr_df[samples_to_keep]
+    
+    if expr_df.empty:
+        print(f"ERROR: No valid samples remain after filtering for {geo_id}.")
+        return
+    
     print(f"Expression matrix: {expr_df.shape[0]} probes x {expr_df.shape[1]} samples")
     
     # 3. Metadata
     pheno = gse.phenotype_data
     if pheno.empty:
         print("WARNING: No phenotype data found. Using sample names as grouping fallback.")
-        pheno = pd.DataFrame({'title': sample_ids}, index=sample_ids)
+        pheno = pd.DataFrame({'title': expr_df.columns}, index=expr_df.columns)
     
     # 4. Detect grouping column
-    group_col = get_group_column(gse)
+    try:
+        group_col = get_group_column(gse)
+    except ValueError:
+        print("WARNING: Could not detect grouping column. Using 'title'.")
+        group_col = 'title'
+    
     print(f"Using column '{group_col}' for grouping.")
     group_values = pheno[group_col].astype(str)
     print("Unique values in grouping column:")
@@ -275,6 +350,7 @@ def process_geo(geo_id, project_root, patterns, group_colors, log_transform=Fals
     # Check again
     if (sample_info['group'] == 'unknown').all():
         print("ERROR: Still all unknown. Please adjust patterns based on the printed unique values.")
+        print("Available unique values:", group_values.unique())
         return
     
     print("\nFinal group assignment:")
@@ -294,29 +370,72 @@ def process_geo(geo_id, project_root, patterns, group_colors, log_transform=Fals
     print(f"Saved expression matrix to {expr_out}")
     print(f"Saved sample info to {sample_out}")
     
-    # 8. Create color vector (Series indexed by sample ID)
+    # 8. Create color vector with complete mapping
     sample_colors = sample_info['group'].map(group_colors)
     sample_colors = sample_colors.fillna('gray')
+    
+    # Also create complete group_colors for legend
+    complete_group_colors = group_colors.copy()
+    unknown_groups = set(sample_info['group'].unique()) - set(group_colors.keys())
+    for g in unknown_groups:
+        complete_group_colors[g] = 'gray'
     
     # 9. Generate QC plots
     print("\nGenerating QC plots...")
     base_title = f"{geo_id}: Endometriosis Dataset"
     
-    plot_boxplot_individual(expr_processed, sample_colors, group_colors,
-                            f"{base_title} - Expression by Sample",
-                            os.path.join(figures, f"{geo_id}_boxplot_individual.pdf"))
-    plot_boxplot_grouped(expr_processed, sample_info, group_colors,
-                         f"{base_title} - Expression by Group",
-                         os.path.join(figures, f"{geo_id}_boxplot.pdf"))
-    plot_density(expr_processed, sample_colors, group_colors,
-                 f"{base_title} - Density",
-                 os.path.join(figures, f"{geo_id}_density.pdf"))
-    plot_mds(expr_processed, sample_colors, group_colors,
-             f"{base_title} - MDS",
-             os.path.join(figures, f"{geo_id}_MDS.pdf"))
-    plot_mean_barplot(expr_processed, sample_colors, group_colors,
-                      f"{base_title} - Mean Expression",
-                      os.path.join(figures, f"{geo_id}_mean_expression.pdf"))
+    try:
+        plot_boxplot_individual(expr_processed, sample_colors, complete_group_colors,
+                                f"{base_title} - Expression by Sample",
+                                os.path.join(figures, f"{geo_id}_boxplot_individual.pdf"))
+        print(f"  ✓ Individual boxplot saved")
+    except Exception as e:
+        print(f"  ✗ Error creating individual boxplot: {e}")
+    
+    try:
+        plot_boxplot_grouped(expr_processed, sample_info, complete_group_colors,
+                             f"{base_title} - Expression by Group",
+                             os.path.join(figures, f"{geo_id}_boxplot.pdf"))
+        print(f"  ✓ Grouped boxplot saved")
+    except Exception as e:
+        print(f"  ✗ Error creating grouped boxplot: {e}")
+    
+    try:
+        plot_density(expr_processed, sample_colors, complete_group_colors,
+                     f"{base_title} - Density",
+                     os.path.join(figures, f"{geo_id}_density.pdf"))
+        print(f"  ✓ Density plot saved")
+    except Exception as e:
+        print(f"  ✗ Error creating density plot: {e}")
+    
+    try:
+        plot_mds(expr_processed, sample_colors, complete_group_colors,
+                 f"{base_title} - MDS",
+                 os.path.join(figures, f"{geo_id}_MDS.pdf"))
+        print(f"  ✓ MDS plot saved")
+    except Exception as e:
+        print(f"  ✗ Error creating MDS plot: {e}")
+    
+    try:
+        plot_mean_barplot(expr_processed, sample_colors, complete_group_colors,
+                          f"{base_title} - Mean Expression",
+                          os.path.join(figures, f"{geo_id}_mean_expression.pdf"))
+        print(f"  ✓ Mean barplot saved")
+    except Exception as e:
+        print(f"  ✗ Error creating mean barplot: {e}")
+    
+    # 10. Save QC summary
+    summary_out = os.path.join(figures, f"{geo_id}_qc_summary.txt")
+    with open(summary_out, 'w') as f:
+        f.write(f"QC Summary for {geo_id}\n")
+        f.write("=" * 50 + "\n")
+        f.write(f"Total samples: {expr_df.shape[1]}\n")
+        f.write(f"Total probes: {expr_df.shape[0]}\n")
+        f.write(f"Groups:\n{sample_info['group'].value_counts().to_string()}\n")
+        f.write(f"Expression range: {expr_processed.min().min():.2f} - {expr_processed.max().max():.2f}\n")
+        f.write(f"NAs: {expr_processed.isna().sum().sum()}\n")
+        f.write(f"Log transformed: {log_transform}\n")
+    print(f"QC summary saved to {summary_out}")
     
     print(f"\n✅ {geo_id} processing complete. All plots saved in {figures}.\n")
 
@@ -331,9 +450,9 @@ patterns_25628 = {
     'eutopic': [re.compile(r'eutopic', re.I)]
 }
 group_colors_25628 = {
-    'normal': 'blue',
-    'ectopic': 'red',
-    'eutopic': 'orange'
+    'normal': '#2ecc71',      # Green
+    'ectopic': '#e74c3c',     # Red
+    'eutopic': '#3498db'      # Blue
 }
 
 # For GSE7305: groups = normal, diseased
@@ -342,25 +461,43 @@ patterns_7305 = {
     'diseased': [re.compile(r'disease|endometrium/ovary-disease', re.I)]
 }
 group_colors_7305 = {
-    'normal': 'blue',
-    'diseased': 'red'
+    'normal': '#2ecc71',      # Green
+    'diseased': '#e74c3c'     # Red
 }
 
 # ============================================================================
-# Run for both datasets (adjust project_root as needed)
+# Run for both datasets
 # ============================================================================
 
 if __name__ == "__main__":
-    # Set your project root directory. By default, use current working directory.
+    # Set your project root directory
     project_root = os.getcwd()
     print(f"Project root: {project_root}")
     
     # Process GSE25628 (already log2, so log_transform=False)
-    process_geo("GSE25628", project_root, patterns_25628, group_colors_25628,
-                log_transform=False)
+    try:
+        process_geo("GSE25628", project_root, patterns_25628, group_colors_25628,
+                    log_transform=False)
+    except Exception as e:
+        print(f"ERROR processing GSE25628: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
     
     # Process GSE7305 (raw values, so log_transform=True)
-    process_geo("GSE7305", project_root, patterns_7305, group_colors_7305,
-                log_transform=True, offset=0.5)
+    try:
+        process_geo("GSE7305", project_root, patterns_7305, group_colors_7305,
+                    log_transform=True, offset=0.5)
+    except Exception as e:
+        print(f"ERROR processing GSE7305: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
     
-    print("All datasets processed successfully.")
+    print("\n" + "=" * 70)
+    print("🎉 ALL DATASETS PROCESSED SUCCESSFULLY! 🎉")
+    print("=" * 70)
+    print(f"Check your outputs in:")
+    print(f"  - Data: {os.path.join(project_root, 'data', 'processed')}")
+    print(f"  - Figures: {os.path.join(project_root, 'figures')}")
+    print("=" * 70)

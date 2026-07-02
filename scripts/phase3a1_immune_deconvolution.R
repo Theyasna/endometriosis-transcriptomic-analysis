@@ -1,15 +1,40 @@
+#!/usr/bin/env Rscript
 # ============================================================================
-# PHASE 3: PROBE-TO-GENE MAPPING (Using pre-installed dplyr)
+# PHASE 3a: PROBE-TO-GENE MAPPING (Dynamic Path Detection)
 # ============================================================================
 
-library(hgu133plus2.db)
-library(dplyr) # Bypassing tidyverse since dplyr is already installed!
+cat("Loading packages...\n")
+suppressPackageStartupMessages({
+  library(hgu133plus2.db)
+  library(dplyr)
+})
+cat("✓ Packages loaded\n\n")
 
-# Set up paths
-project_dir <- "C:/Users/Yasna/OneDrive/Belgeler/endometriosis-transcriptomic-analysis"
+# ============================================================================
+# CONFIGURATION - DYNAMIC PATH DETECTION
+# ============================================================================
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) > 0) {
+  project_dir <- args[1]
+} else {
+  # Auto-detect: if running from scripts folder, go up one level
+  if (file.exists("../data/processed")) {
+    project_dir <- ".."
+  } else {
+    project_dir <- getwd()
+  }
+}
+
+cat("Project directory:", project_dir, "\n")
+
 expr_path <- file.path(project_dir, "data", "processed", "harmonized_expression_matrix.csv")
 output_path <- file.path(project_dir, "data", "processed", "gene_expression_matrix.csv")
 
+# Check if input file exists
+if (!file.exists(expr_path)) {
+  stop(paste("ERROR: Input file not found at:", expr_path))
+}
 # 1. Load your expression matrix
 cat("Loading harmonized probe matrix...\n")
 expr_matrix <- read.csv(expr_path, row.names = 1, check.names = FALSE)

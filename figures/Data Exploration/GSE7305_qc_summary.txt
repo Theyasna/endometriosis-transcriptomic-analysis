@@ -1,0 +1,11 @@
+QC Summary for GSE7305
+==================================================
+Total samples: 20
+Total probes: 54675
+Groups:
+group
+diseased    10
+normal      10
+Expression range: 2.46 - 14.43
+NAs: 0
+Log transformed: True

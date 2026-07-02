@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 PROJECT 1: ENDOMETRIOSIS TRANSCRIPTOMICS
 PHASE 3a: AUTHENTIC IMMUNE CELL DECONVOLUTION (ssGSEA) via MSigDB C8
 """
 
 import os
+import sys
+import argparse
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -14,9 +18,22 @@ import gseapy as gp
 from gseapy import Msigdb
 
 # ============================================================================
-# 1. CONFIGURATION & PATHS
+# 1. CONFIGURATION - DYNAMIC PATH DETECTION
 # ============================================================================
-PROJECT_DIR = r"C:\Users\Yasna\OneDrive\Belgeler\endometriosis-transcriptomic-analysis"
+parser = argparse.ArgumentParser(description="Phase 3a: Immune Deconvolution")
+parser.add_argument("--project_root", default=os.getcwd(), 
+                    help="Project root directory")
+args = parser.parse_args()
+
+PROJECT_DIR = args.project_root
+
+# Auto-detect if running from scripts folder
+if not os.path.exists(os.path.join(PROJECT_DIR, "data")):
+    parent_dir = os.path.dirname(PROJECT_DIR)
+    if os.path.exists(os.path.join(parent_dir, "data")):
+        PROJECT_DIR = parent_dir
+
+print(f"Project directory: {PROJECT_DIR}")
 
 GENE_EXPR_PATH = os.path.join(PROJECT_DIR, "data", "processed", "gene_expression_matrix.csv")
 SAMPLE_INFO_PATH = os.path.join(PROJECT_DIR, "data", "processed", "harmonized_sample_info.csv")
@@ -24,7 +41,6 @@ SAMPLE_INFO_PATH = os.path.join(PROJECT_DIR, "data", "processed", "harmonized_sa
 RESULTS_DIR = os.path.join(PROJECT_DIR, "results", "immune_profiling")
 FIGURES_DIR = os.path.join(PROJECT_DIR, "figures", "immune_profiling")
 
-# Ensure output directories exist
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(FIGURES_DIR, exist_ok=True)
 
