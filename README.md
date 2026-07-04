@@ -1,93 +1,123 @@
-# Endometriosis Transcriptomics: A Systems Biology Pipeline
+````markdown
+# Endometriosis Transcriptomics: Integrative Analysis of Gene Expression, Immune Remodeling, and Fibrotic Pathways
 
-## Research Question
-Which genes, immune cell types, and biological pathways drive the inflammatory and fibrotic microenvironment of ectopic endometrial lesions?
+> A fully reproducible systems biology pipeline integrating multiple transcriptomic datasets to investigate the molecular mechanisms underlying endometriosis.
 
----
-
-## Project Summary
-This repository contains a **complete, reproducible bioinformatics pipeline** integrating two independent Affymetrix microarray datasets (GSE25628 and GSE7305, total n=42 samples). The pipeline handles everything from raw GEO data download to publication-ready figures, with a focus on **cross-platform harmonization**, **differential expression**, **immune deconvolution**, and **pathway enrichment**.
-
----
-
-## Pipeline Architecture
-
-
-```
-Phase 0: Data Loading & QC (Python)
-↓
-Phase 1: Batch Correction & Harmonization (Python + ComBat)
-↓
-Phase 2: Differential Expression (R + limma)
-↓
-Phase 3a: Probe-to-Gene Mapping (R) + ssGSEA Immune Deconvolution (Python)
-↓
-Phase 3b: Statistical Testing of Immune Changes (Python)
-↓
-Phase 3c: GO & KEGG Pathway Enrichment (R + clusterProfiler)
-```
+![Python](https://img.shields.io/badge/Python-3.10+-blue)
+![R](https://img.shields.io/badge/R-4.3+-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Bioinformatics](https://img.shields.io/badge/Field-Bioinformatics-orange)
+![Transcriptomics](https://img.shields.io/badge/Focus-Transcriptomics-red)
+![Reproducible](https://img.shields.io/badge/Reproducible-Research-success)
 
 ---
 
-## Phase Details
+# Overview
 
-### Phase 0: Data Loading & Quality Control
-- **Script**: `scripts/phase0_data_loading.py`
-- Downloads and processes GSE25628 (22 samples) and GSE7305 (20 samples)
-- Performs log transformation, group assignment, and comprehensive QC (boxplots, density, MDS, mean expression)
+Endometriosis is a chronic inflammatory disease characterized by the growth of endometrial-like tissue outside the uterus, affecting approximately 10% of reproductive-age women worldwide. Although its clinical manifestations are well recognized, the molecular mechanisms that promote lesion establishment, immune evasion, and fibrotic remodeling remain incompletely understood.
 
-### Phase 1: Harmonization & Batch Correction
-- **Script**: `scripts/phase1_harmonization.py`
-- Aligns 22,277 common probes (100% retention from GSE25628)
-- Applies **ComBat** batch correction while preserving group effects
-- Validates correction with PCA (PC1 variance reduced from 46.3% to 32.2%)
+This project presents a **fully reproducible transcriptomic analysis pipeline** integrating two independent GEO microarray datasets to investigate molecular alterations associated with endometriosis.
 
-### Phase 2: Differential Expression Analysis
-- **Script**: `scripts/phase2_deg_analysis.R`
-- Uses **limma + eBayes** for robust statistical testing
-- Four contrasts with Benjamini-Hochberg FDR correction
+Rather than focusing solely on differential gene expression, the pipeline combines:
 
-**Significant DEGs (FDR < 0.05, |logFC| > 1)**:
+- Differential expression analysis
+- Cross-study batch correction
+- Immune cell signature profiling
+- Functional enrichment analysis
 
-| Comparison              | Total | Up   | Down |
-|-------------------------|-------|------|------|
-| Ectopic vs Normal       | 1,490 | 795  | 695  |
-| Diseased vs Normal      | 1,893 | 991  | 902  |
-| Eutopic vs Normal       | 216   | 91   | 125  |
-| Ectopic vs Eutopic      | 145   | 137  | 8    |
-| **Ectopic vs Diseased** | **0** | —    | —    |
-
-> **Note:** The 0 DEGs between ectopic and diseased validates cross-dataset harmonization — ovarian and peritoneal endometriosis are molecularly indistinguishable at the transcriptomic level.
-
-### Phase 3: Immune Profiling & Pathway Analysis
-- **3a**: Probe-to-gene mapping (22,277 probes → 13,631 unique genes) + ssGSEA using MSigDB C8 cell-type signatures
-- **3b**: Kruskal-Wallis + post-hoc testing → **526 significant immune signatures** (FDR < 0.05)
-- **3c**: GO Biological Process and KEGG pathway enrichment
-
-**Notable Enriched Pathways**:
-- Cell cycle & mitotic regulation
-- ECM-receptor interaction & focal adhesion (fibrosis)
-- Complement & coagulation cascades (inflammation)
+to characterize the biological processes shaping the endometriotic microenvironment.
 
 ---
 
-## Installation & Running the Pipeline
+# Research Question
 
-### Requirements
+> **Which genes, immune cell programs, and biological pathways characterize the inflammatory and fibrotic microenvironment of ectopic endometrial lesions?**
 
-**Python**:
-```bash
-pip install pandas numpy scipy scikit-learn matplotlib seaborn GEOparse gseapy pycombat statsmodels
-```
-**R (Bioconductor)**:
-```
-RBiocManager::install(c("limma", "clusterProfiler", "org.Hs.eg.db", "hgu133plus2.db", "AnnotationDbi"))
-install.packages(c("ggplot2", "ggrepel", "dplyr"))
+---
+
+# Project Highlights
+
+- Integrated **2 independent GEO microarray datasets**
+- Processed **42 patient samples**
+- Harmonized **22,277 shared probes** using ComBat
+- Identified **1,490 differentially expressed genes** in ectopic lesions
+- Quantified **830 immune cell signatures**
+- Detected **526 significantly altered immune programs**
+- Performed GO Biological Process and KEGG enrichment analyses
+- Fully reproducible **Python + R** workflow
+
+---
+
+# Datasets
+
+| Dataset | Samples | Tissue Types | Platform |
+|----------|---------:|-------------|----------|
+| GSE25628 | 22 | Normal, Eutopic, Ectopic | Affymetrix |
+| GSE7305 | 20 | Normal, Diseased | Affymetrix |
+
+**Total samples:** 42
+
+---
+
+# Analysis Pipeline
+
+```text
+Raw GEO Data
+      │
+      ▼
+Phase 0
+Quality Control
+      │
+      ▼
+Phase 1
+Cross-study Harmonization
+(ComBat)
+      │
+      ▼
+Phase 2
+Differential Expression
+(limma)
+      │
+      ▼
+Phase 3A
+Probe Mapping
++
+ssGSEA Immune Profiling
+      │
+      ▼
+Phase 3B
+Statistical Analysis
+      │
+      ▼
+Phase 3C
+GO / KEGG Enrichment
+      │
+      ▼
+Biological Interpretation
 ```
 
-### Project Structure
-```
+---
+
+# Methods at a Glance
+
+| Step | Method |
+|------|--------|
+| Data download | GEOparse |
+| Quality control | Boxplots, density plots, MDS |
+| Batch correction | ComBat |
+| Differential expression | limma + empirical Bayes |
+| Multiple testing | Benjamini–Hochberg FDR |
+| Immune profiling | ssGSEA |
+| Statistical testing | Kruskal–Wallis + post-hoc tests |
+| Functional enrichment | clusterProfiler |
+
+---
+
+# Repository Structure
+
+```text
 endometriosis-transcriptomics/
+
 ├── README.md
 ├── scripts/
 │   ├── phase0_data_loading.py
@@ -97,104 +127,235 @@ endometriosis-transcriptomics/
 │   ├── phase3a_immune_deconvolution.py
 │   ├── phase3b_differential_immune_infiltration.py
 │   └── phase3c_pathway_enrichment.R
+│
 ├── data/
-│   ├── raw/              ← GEO downloads (auto-created)
-│   └── processed/        ← Phase output (auto-created)
-├── figures/              ← Publication-quality PDFs
-└── results/              ← CSV result tables
+│   ├── raw/
+│   └── processed/
+│
+├── figures/
+│
+└── results/
 ```
 
 ---
 
-## Quick Start
+# Pipeline Details
+
+## Phase 0 — Data Loading & Quality Control
+
+- Download GEO datasets
+- Log transformation
+- Sample annotation
+- Quality assessment using:
+  - Boxplots
+  - Density plots
+  - Mean expression
+  - MDS visualization
+
+---
+
+## Phase 1 — Cross-study Harmonization
+
+- Identification of common probes
+- Alignment of datasets
+- ComBat batch correction
+- PCA validation before and after correction
+
+**Result**
+
+- 22,277 shared probes retained
+- Batch-associated variance substantially reduced while preserving biological group differences
+
+---
+
+## Phase 2 — Differential Expression
+
+Differential expression analysis was performed using **limma** with empirical Bayes moderation.
+
+### Significant Differentially Expressed Genes
+
+| Comparison | DEGs | Up | Down |
+|------------|------:|----:|------:|
+| Ectopic vs Normal | 1,490 | 795 | 695 |
+| Diseased vs Normal | 1,893 | 991 | 902 |
+| Eutopic vs Normal | 216 | 91 | 125 |
+| Ectopic vs Eutopic | 145 | 137 | 8 |
+| Ectopic vs Diseased | 0 | — | — |
+
+Criteria:
+
+- FDR < 0.05
+- |log₂ Fold Change| > 1
+
+---
+
+## Phase 3A — Immune Cell Signature Profiling
+
+Probe-level expression was converted to gene-level expression before performing ssGSEA using MSigDB immune cell signatures.
+
+Results:
+
+- 22,277 probes
+- 13,631 unique genes
+- 830 immune signatures quantified
+
+---
+
+## Phase 3B — Statistical Analysis
+
+Immune signatures were compared across groups using:
+
+- Kruskal–Wallis tests
+- Multiple testing correction
+- Pairwise post-hoc comparisons
+
+Result:
+
+**526 immune signatures were significantly altered (FDR < 0.05).**
+
+---
+
+## Phase 3C — Functional Enrichment
+
+GO Biological Process and KEGG pathway enrichment analyses were performed using clusterProfiler.
+
+Major enriched biological themes included:
+
+- Cell cycle regulation
+- Mitotic progression
+- ECM organization
+- Focal adhesion
+- Complement activation
+- Coagulation pathways
+
+---
+
+# Representative Results
+
+## PCA Before and After Batch Correction
+
+```markdown
+![PCA](figures/harmonization/03_comparison_before_after.pdf)
+```
+
+## Immune Cell Signature Heatmap
+
+```markdown
+![Immune Heatmap](figures/immune_profiling/authentic_immune_landscape_heatmap.pdf)
+```
+
+---
+
+# Biological Insights
+
+The integrated analysis revealed several consistent molecular features associated with ectopic endometrial lesions.
+
+## Increased Cellular Proliferation
+
+Genes involved in mitosis and cell-cycle progression were strongly upregulated, consistent with enhanced proliferative activity within ectopic tissue.
+
+---
+
+## Fibrotic Remodeling
+
+Extracellular matrix organization, focal adhesion pathways, and fibroblast-associated signatures were enriched, supporting extensive tissue remodeling.
+
+---
+
+## Chronic Inflammation
+
+Complement activation, coagulation pathways, and widespread immune-cell alterations indicate persistent inflammatory activity.
+
+---
+
+## Immune Dysregulation
+
+Multiple macrophage-associated and immune regulatory signatures were enriched, suggesting a complex immune microenvironment involving both inflammatory activation and immune tolerance.
+
+---
+
+## Disease Progression
+
+The transcriptomic analyses suggest a molecular progression:
+
+```text
+Normal
+     ↓
+Eutopic
+     ↓
+Ectopic ≈ Diseased
+```
+
+No significant differential expression was detected between ectopic and diseased tissues under the selected statistical thresholds, indicating substantial transcriptomic similarity after cross-study harmonization. This observation is consistent with previous reports describing shared molecular characteristics among advanced endometriotic lesions, although further validation in independent cohorts is warranted.
+
+---
+
+# Limitations
+
+- Based on bulk microarray data rather than RNA sequencing
+- Moderate sample size
+- Immune infiltration estimated computationally using ssGSEA
+- Cross-sectional observational study
+- Findings represent associations rather than causal mechanisms
+
+---
+
+# Future Directions
+
+Potential extensions of this project include:
+
+- Validation using independent RNA-seq cohorts
+- Integration with single-cell RNA sequencing
+- Protein-protein interaction network analysis
+- Gene regulatory network inference
+- Machine learning models for lesion classification
+- Comparison with adenomyosis and PCOS transcriptomic datasets
+
+---
+
+# Reproducibility
+
+Clone the repository:
 
 ```bash
-# Clone repo
 git clone https://github.com/Theyasna/endometriosis-transcriptomics.git
-cd endometriosis-transcriptomics
 
-# Phase 0: Download & QC (30-45 min, ~2 GB)
+cd endometriosis-transcriptomics
+```
+
+Run the pipeline sequentially:
+
+```bash
 python scripts/phase0_data_loading.py
 
-# Phase 1: Harmonization (5-10 min)
 python scripts/phase1_harmonization.py
 
-# Phase 2: DEG Analysis (10-15 min)
 Rscript scripts/phase2_deg_analysis.R
 
-# Phase 3a: Gene Mapping + Immune Deconvolution (15-20 min)
 Rscript scripts/phase3a_probe_to_gene_mapping.R
+
 python scripts/phase3a_immune_deconvolution.py
 
-# Phase 3b: Immune Statistics (5 min)
 python scripts/phase3b_differential_immune_infiltration.py
 
-# Phase 3c: Pathway Enrichment (10 min)
 Rscript scripts/phase3c_pathway_enrichment.R
 ```
 
-**Total runtime:** ~90 minutes (first run includes data download)
+---
+
+# Author
+
+**Yasna Dehestan**
+
+Bioinformatics • Transcriptomics • Systems Biology • Women's Health Genomics
+
+GitHub: https://github.com/Theyasna
+
+Email: theyasnad@gmail.com
 
 ---
 
-## Key Findings
+# License
 
-### Molecular Signature of Ectopic Tissue
-
-1. **Proliferative Gene Expression** 
-   -Significant upregulation of cell cycle and mitotic pathways
-   -Supports aggressive growth and survival of ectopic lesions outside the uterus
-
-2. **Fibrotic Remodeling** 
-   - Elevated signatures of adventitial fibroblasts and smooth muscle cells
-   - Active extracellular matrix (ECM) remodeling and tissue restructuring
-
-3. **Chronic Inflammation** 
-   - Enrichment of complement cascade and coagulation pathways
-   - 526 out of 830 immune cell-type signatures show significant alteration (FDR < 0.05)
-
-4. **Immune Tolerance** 
-   - Evidence of both pro- and anti-inflammatory signals (M1/M2 macrophage signatures)
-   - Suggests establishment of immune tolerance that allows lesion persistence
-   
-###  Graded Disease Progression Model
-
-The pipeline revealed a clear molecular gradient:
-Normal → Eutopic → Ectopic ≈ Diseased
-
-1. **Eutopic endometrium shows minimal pathway dysregulation (0 GO BP terms)** 
-
-2. **Ectopic lesions show strong activation (1,490 DEGs)** 
-
-3. **Diseased tissue shows the strongest signal (1,893 DEGs)** 
-
-4. **Ectopic and diseased are molecularly identical (0 DEGs between them)** 
-
-This supports the hypothesis that endometriosis is a spectrum disorder where eutopic tissue exists in a "primed" state before lesion formation.
----
-
-## Limitations & Caveats 
-
-Microarray-based — probe-level data, not RNA-seq
-
-Moderate sample sizes per subgroup (n=8 for ectopic/eutopic)
-
-Computational immune estimates (ssGSEA) — requires experimental validation
-
-Observational study — findings are correlational, not causal
-
----
-
-
-## Contact
-
-**Yasna Dehestan**  
-Bioinformatics | Women's Health Genomics  
-Email: theyasnad@gmail.com  
-GitHub: [@Theyasna](https://github.com/Theyasna)
-
----
-
-## License
-
-MIT License
+This project is released under the MIT License.
+````
