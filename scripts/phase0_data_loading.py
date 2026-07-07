@@ -4,8 +4,7 @@
 """
 Project: Endometriosis Transcriptomics
 Datasets: GSE25628 and GSE7305
-Python script for downloading, processing, and QC with color coding.
-FIXED VERSION - All improvements applied
+Data loading, harmonization prep, and quality control.
 """
 
 import os
@@ -160,9 +159,23 @@ def plot_mds(expr_df, sample_colors, group_colors, title, outfile):
     # Calculate distance matrix
     dist = pdist(data, metric='euclidean')
     dist_sq = squareform(dist)
-    
-    # FIX: Use metric=True instead of dissimilarity='precomputed'
-    mds = MDS(n_components=2, metric=True, random_state=42, n_init=1)
+
+    # FIX (corrected): the previous version passed a precomputed distance
+    # matrix (dist_sq) into MDS while leaving dissimilarity at its default
+    # ('euclidean'). That silently re-computed Euclidean distances BETWEEN
+    # the rows of dist_sq (i.e. distances between distance-vectors), not an
+    # embedding of the original sample distances. The lines below are the
+    # actual fix: tell MDS the input is already a distance matrix.
+    # normalized_stress='auto' avoids the sklearn>=1.4 deprecation warning
+    # for metric MDS without changing behavior for this use case.
+    mds = MDS(
+        n_components=2,
+        metric=True,
+        dissimilarity='precomputed',
+        random_state=42,
+        n_init=4,
+        normalized_stress='auto',
+    )
     coords = mds.fit_transform(dist_sq)
     
     # Build color list in the same order as data.index (sample IDs)
@@ -388,7 +401,7 @@ def process_geo(geo_id, project_root, patterns, group_colors, log_transform=Fals
         plot_boxplot_individual(expr_processed, sample_colors, complete_group_colors,
                                 f"{base_title} - Expression by Sample",
                                 os.path.join(figures, f"{geo_id}_boxplot_individual.pdf"))
-        print(f"  ✓ Individual boxplot saved")
+        print(f"  Individual boxplot saved")
     except Exception as e:
         print(f"  ✗ Error creating individual boxplot: {e}")
     
@@ -396,7 +409,7 @@ def process_geo(geo_id, project_root, patterns, group_colors, log_transform=Fals
         plot_boxplot_grouped(expr_processed, sample_info, complete_group_colors,
                              f"{base_title} - Expression by Group",
                              os.path.join(figures, f"{geo_id}_boxplot.pdf"))
-        print(f"  ✓ Grouped boxplot saved")
+        print(f"  Grouped boxplot saved")
     except Exception as e:
         print(f"  ✗ Error creating grouped boxplot: {e}")
     
@@ -404,7 +417,7 @@ def process_geo(geo_id, project_root, patterns, group_colors, log_transform=Fals
         plot_density(expr_processed, sample_colors, complete_group_colors,
                      f"{base_title} - Density",
                      os.path.join(figures, f"{geo_id}_density.pdf"))
-        print(f"  ✓ Density plot saved")
+        print(f"  Density plot saved")
     except Exception as e:
         print(f"  ✗ Error creating density plot: {e}")
     
@@ -412,7 +425,7 @@ def process_geo(geo_id, project_root, patterns, group_colors, log_transform=Fals
         plot_mds(expr_processed, sample_colors, complete_group_colors,
                  f"{base_title} - MDS",
                  os.path.join(figures, f"{geo_id}_MDS.pdf"))
-        print(f"  ✓ MDS plot saved")
+        print(f"  MDS plot saved")
     except Exception as e:
         print(f"  ✗ Error creating MDS plot: {e}")
     
@@ -420,7 +433,7 @@ def process_geo(geo_id, project_root, patterns, group_colors, log_transform=Fals
         plot_mean_barplot(expr_processed, sample_colors, complete_group_colors,
                           f"{base_title} - Mean Expression",
                           os.path.join(figures, f"{geo_id}_mean_expression.pdf"))
-        print(f"  ✓ Mean barplot saved")
+        print(f"  Mean barplot saved")
     except Exception as e:
         print(f"  ✗ Error creating mean barplot: {e}")
     
@@ -437,7 +450,7 @@ def process_geo(geo_id, project_root, patterns, group_colors, log_transform=Fals
         f.write(f"Log transformed: {log_transform}\n")
     print(f"QC summary saved to {summary_out}")
     
-    print(f"\n✅ {geo_id} processing complete. All plots saved in {figures}.\n")
+    print(f"\n{geo_id} processing complete. All plots saved in {figures}.\n")
 
 # ============================================================================
 # Define patterns and colors for each dataset
@@ -495,7 +508,7 @@ if __name__ == "__main__":
         sys.exit(1)
     
     print("\n" + "=" * 70)
-    print("🎉 ALL DATASETS PROCESSED SUCCESSFULLY! 🎉")
+    print("All datasets processed.")
     print("=" * 70)
     print(f"Check your outputs in:")
     print(f"  - Data: {os.path.join(project_root, 'data', 'processed')}")

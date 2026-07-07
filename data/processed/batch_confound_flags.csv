@@ -1,0 +1,5 @@
+group,n_batches_present,confounded_with_batch
+diseased,1,True
+ectopic,1,True
+eutopic,1,True
+normal,2,False

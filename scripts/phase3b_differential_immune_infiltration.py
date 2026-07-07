@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 PROJECT 1: ENDOMETRIOSIS TRANSCRIPTOMICS
-PHASE 3b: DIFFERENTIAL IMMUNE INFILTRATION STATISTICAL TESTING
+PHASE 3b: DIFFERENTIAL IMMUNE INFILTRATION (PER-DATASET)
+FIXED: No R syntax in Python, dynamic grid, deterministic group order
 """
 
 import os
-import sys
 import argparse
 import pandas as pd
 import numpy as np
@@ -16,16 +16,13 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
 # ============================================================================
-# 1. CONFIGURATION - DYNAMIC PATH DETECTION
+# 1. CONFIGURATION
 # ============================================================================
 parser = argparse.ArgumentParser(description="Phase 3b: Differential Immune Stats")
-parser.add_argument("--project_root", default=os.getcwd(), 
-                    help="Project root directory")
+parser.add_argument("--project_root", default=os.getcwd())
 args = parser.parse_args()
 
 PROJECT_DIR = args.project_root
-
-# Auto-detect if running from scripts folder
 if not os.path.exists(os.path.join(PROJECT_DIR, "data")):
     parent_dir = os.path.dirname(PROJECT_DIR)
     if os.path.exists(os.path.join(parent_dir, "data")):
@@ -33,8 +30,9 @@ if not os.path.exists(os.path.join(PROJECT_DIR, "data")):
 
 print(f"Project directory: {PROJECT_DIR}")
 
-ENRICHMENT_SCORES_PATH = os.path.join(PROJECT_DIR, "results", "immune_profiling", 
-                                      "authentic_immune_enrichment_scores.csv")
+ENRICHMENT_SCORES_PATH = os.path.join(
+    PROJECT_DIR, "results", "immune_profiling", "immunesigdb_enrichment_scores.csv"
+)
 SAMPLE_INFO_PATH = os.path.join(PROJECT_DIR, "data", "processed", "harmonized_sample_info.csv")
 
 RESULTS_DIR = os.path.join(PROJECT_DIR, "results", "immune_profiling")
@@ -44,147 +42,207 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(FIGURES_DIR, exist_ok=True)
 
 # ============================================================================
-# 2. LOAD & PREPARE DATA
+# 2. LOAD DATA
 # ============================================================================
 print("Loading enrichment scores and sample metadata...")
 es_matrix = pd.read_csv(ENRICHMENT_SCORES_PATH, index_col=0)
 df_sample = pd.read_csv(SAMPLE_INFO_PATH, index_col=0)
 
-# Ensure sample alignment across files
 common_samples = df_sample.index.intersection(es_matrix.columns)
 es_matrix = es_matrix[common_samples]
 df_sample = df_sample.loc[common_samples]
 
-groups_list = ['normal', 'eutopic', 'ectopic', 'diseased']
-
 # ============================================================================
-# 3. HIGH-THROUGHPUT STATISTICAL TESTING (830 SIGNATURES)
+# 3. PER-DATASET STATISTICAL TESTING
 # ============================================================================
-print("\nRunning Kruskal-Wallis Omnibus Tests & Pairwise Post-Hocs...")
-stats_results = []
+print("\nRunning per-dataset Kruskal-Wallis tests...")
 
-for cell_type in es_matrix.index:
-    # Separate scores by clinical cohort
-    group_data = {}
-    is_valid = True
-    for g in groups_list:
-        samples_in_g = df_sample[df_sample['group'] == g].index
-        scores = es_matrix.loc[cell_type, samples_in_g].values
-        if len(scores) < 2:  # Ensure statistical group sizing is valid
-            is_valid = False
-        group_data[g] = scores
-        
-    if not is_valid:
-        continue
-        
-    # Calculate Omnibus Significance across all 4 environments
-    try:
-        kw_stat, kw_p = stats.kruskal(
-            group_data['normal'], 
-            group_data['eutopic'], 
-            group_data['ectopic'], 
-            group_data['diseased']
-        )
-    except ValueError:
-        kw_stat, kw_p = 0.0, 1.0
-
-    # Helper function for pairwise post-hoc tests (Mann-Whitney U)
-    def run_pairwise(g1, g2):
-        try:
-            return stats.mannwhitneyu(group_data[g1], group_data[g2], alternative='two-sided')[1]
-        except ValueError:
-            return 1.0
-
-    # Compile data row
-    row = {
-        'Signature_Name': cell_type,
-        'Clean_Name': cell_type.split("___")[-1].replace("_", " ").title() if "___" in cell_type else cell_type.replace("_", " ").title(),
-        'Kruskal_Wallis_Stat': kw_stat,
-        'Omnibus_p_value': kw_p,
-        'Mean_Normal': np.mean(group_data['normal']),
-        'Mean_Eutopic': np.mean(group_data['eutopic']),
-        'Mean_Ectopic': np.mean(group_data['ectopic']),
-        'Mean_Diseased': np.mean(group_data['diseased']),
-        'p_Ectopic_vs_Normal': run_pairwise('ectopic', 'normal'),
-        'p_Eutopic_vs_Normal': run_pairwise('eutopic', 'normal'),
-        'p_Ectopic_vs_Eutopic': run_pairwise('ectopic', 'eutopic'),
-        'p_Diseased_vs_Normal': run_pairwise('diseased', 'normal')
+datasets = {
+    "GSE25628": {
+        "samples": df_sample[df_sample['batch'] == "GSE25628"].index,
+        "groups": ["ectopic", "eutopic", "normal"]
+    },
+    "GSE7305": {
+        "samples": df_sample[df_sample['batch'] == "GSE7305"].index,
+        "groups": ["diseased", "normal"]
     }
-    stats_results.append(row)
-
-df_stats = pd.DataFrame(stats_results)
-
-# Apply False Discovery Rate (FDR) adjustment to control for multi-testing overhead
-df_stats['Omnibus_FDR'] = multipletests(df_stats['Omnibus_p_value'], method='fdr_bh')[1]
-df_stats = df_stats.sort_values(by='Omnibus_p_value')
-
-# Save comprehensive statistical analysis sheet
-stats_out_path = os.path.join(RESULTS_DIR, "differential_immune_infiltration_stats.csv")
-df_stats.to_csv(stats_out_path, index=False)
-print(f"✓ Statistical profiling complete. Full table saved to:\n  {stats_out_path}")
-
-# Filter out significantly shifting signatures
-sig_signatures = df_stats[df_stats['Omnibus_FDR'] < 0.05]
-print(f"✓ Found {len(sig_signatures)} signatures showing significant cohort variance at FDR < 0.05.")
-
-# ============================================================================
-# 4. GRID VISUALIZATION OF TOP TARGET IMMUNE POPULATIONS
-# ============================================================================
-print("\nPlotting top 6 highly significant immune signature transitions...")
-
-# Select the top 6 moving signatures by raw p-value
-top_6_targets = df_stats.head(6)
-
-fig, axes = plt.subplots(2, 3, figsize=(18, 11), sharex=False)
-axes = axes.flatten()
-
-# Custom design color mapping matching your heatmap environment bar
-palette_colors = {
-    'normal': '#2ecc71',   # Emerald Green
-    'eutopic': '#3498db',  # Marine Blue
-    'ectopic': '#e74c3c',  # Crimson Red
-    'diseased': '#f1c40f'  # Muted Gold
 }
 
-for i, (_, row) in enumerate(top_6_targets.iterrows()):
-    ax = axes[i]
-    sig_id = row['Signature_Name']
-    clean_label = row['Clean_Name']
-    
-    # Isolate vector scores across cohorts for visualization
-    plot_rows = []
-    for g in groups_list:
-        samples_in_g = df_sample[df_sample['group'] == g].index
-        for s in samples_in_g:
-            plot_rows.append({'Group': g, 'Score': es_matrix.loc[sig_id, s]})
-    df_plot_sig = pd.DataFrame(plot_rows)
-    
-    # Generate hybrid Box+Strip charts for high publication clarity
-    sns.boxplot(
-        data=df_plot_sig, x='Group', y='Score', hue='Group', order=groups_list,
-        palette=palette_colors, ax=ax, width=0.5, fliersize=0, legend=False
-    )
-    sns.stripplot(
-        data=df_plot_sig, x='Group', y='Score', order=groups_list,
-        color='black', alpha=0.4, size=4, jitter=0.2, ax=ax
-    )
-    
-    # Refine specific text features
-    ax.set_title(f"{clean_label}\nOmnibus FDR: {row['Omnibus_FDR']:.2e}", fontsize=11, fontweight='bold')
-    ax.set_ylabel("Enrichment Score (ssGSEA)", fontsize=9)
-    ax.set_xlabel("", fontsize=9)
-    ax.tick_params(axis='x', labelsize=10)
-    ax.grid(axis='y', linestyle='--', alpha=0.5)
+all_stats = []
 
-# Adjust overall layout spacing
-plt.tight_layout()
-fig.subplots_adjust(top=0.90)
-fig.suptitle("Top Significant Immune Profiling Modifications Across Endometriosis Microenvironments", 
-             fontsize=15, fontweight='bold')
+for ds_name, ds_info in datasets.items():
+    print(f"\n  Processing: {ds_name}")
 
-boxplots_out_path = os.path.join(FIGURES_DIR, "differential_immune_boxplots.pdf")
-plt.savefig(boxplots_out_path, dpi=300, bbox_inches='tight')
-plt.close()
+    ds_samples = ds_info["samples"]
+    ds_es = es_matrix[ds_samples]
+    ds_sample_info = df_sample.loc[ds_samples]
 
-print(f"✓ Publication-grade grid boxplots saved to:\n  {boxplots_out_path}")
-print("\n*** Phase 3b statistical validation concluded cleanly! ***")
+    # Use explicit group list for deterministic order
+    groups_available = [g for g in ds_info["groups"] if g in ds_sample_info['group'].unique()]
+    print(f"    Groups: {groups_available}")
+
+    if len(groups_available) < 2:
+        print(f"    Skipping {ds_name} — fewer than 2 groups")
+        continue
+
+    for cell_type in ds_es.index:
+        group_data = {}
+        for g in groups_available:
+            samples_in_g = ds_sample_info[ds_sample_info['group'] == g].index
+            scores = ds_es.loc[cell_type, samples_in_g].values
+            if len(scores) >= 2:
+                group_data[g] = scores
+
+        if len(group_data) < 2:
+            continue
+
+        try:
+            # FIX: iterate over group_data (groups that actually passed the
+            # >=2 sample filter) rather than groups_available. If a group had
+            # <2 samples it was dropped from group_data, and the old
+            # `for g in groups_available` would raise KeyError -- silently
+            # swallowed by the except below and recorded as p=1.0. Harmless on
+            # the current data (no group drops below 2) but a real trap if a
+            # smaller dataset is ever used.
+            kw_stat, kw_p = stats.kruskal(*[group_data[g] for g in group_data])
+        except ValueError:
+            kw_stat, kw_p = 0.0, 1.0
+
+        def run_pairwise(g1, g2):
+            try:
+                return stats.mannwhitneyu(group_data[g1], group_data[g2],
+                                         alternative='two-sided')[1]
+            except Exception:
+                return 1.0
+
+        row = {
+            'Dataset': ds_name,
+            'Signature': cell_type,
+            'Clean_Name': cell_type.split("___")[-1].replace("_", " ").title()
+                          if "___" in cell_type else cell_type.replace("_", " ").title(),
+            'Kruskal_Wallis_Stat': kw_stat,
+            'Omnibus_p_value': kw_p,
+        }
+
+        # FIX: key off group_data (groups that passed the >=2 filter),
+        # consistent with the kruskal call above, so column names and the
+        # test never reference a group that was dropped for small n.
+        present_groups = list(group_data.keys())
+        for g in present_groups:
+            row[f'Mean_{g.title()}'] = np.mean(group_data[g])
+
+        for i, g1 in enumerate(present_groups):
+            for g2 in present_groups[i+1:]:
+                row[f'p_{g1}_vs_{g2}'] = run_pairwise(g1, g2)
+
+        all_stats.append(row)
+
+df_stats = pd.DataFrame(all_stats)
+
+if df_stats.empty:
+    print("\nERROR: No valid comparisons. Check your sample metadata.")
+    exit(1)
+
+# Apply FDR per dataset
+for ds_name in datasets.keys():
+    mask = df_stats['Dataset'] == ds_name
+    if mask.any():
+        pvals = df_stats.loc[mask, 'Omnibus_p_value'].values
+        # Handle NaNs in p-values
+        pvals = np.nan_to_num(pvals, nan=1.0)
+        df_stats.loc[mask, 'Omnibus_FDR'] = multipletests(pvals, method='fdr_bh')[1]
+
+# ============================================================================
+# 4. SAVE RESULTS
+# ============================================================================
+stats_out_path = os.path.join(RESULTS_DIR, "differential_immune_infiltration_stats.csv")
+df_stats.to_csv(stats_out_path, index=False)
+print(f"\nStatistical results saved to: {stats_out_path}")
+
+for ds_name in datasets.keys():
+    mask = df_stats['Dataset'] == ds_name
+    if mask.any():
+        # Use pandas sum with skipna (Python syntax, not R)
+        n_sig = df_stats.loc[mask, 'Omnibus_FDR'].lt(0.05).sum()
+        n_total = mask.sum()
+        print(f"  {ds_name}: {n_sig}/{n_total} significant (FDR < 0.05)")
+
+# ============================================================================
+# 5. BOXPLOTS (Top 6 per dataset)
+# ============================================================================
+print("\nPlotting top significant signatures...")
+
+top_sigs = []
+for ds_name in datasets.keys():
+    mask = df_stats['Dataset'] == ds_name
+    ds_sigs = df_stats[mask].sort_values('Omnibus_p_value').head(6)
+    if not ds_sigs.empty:
+        top_sigs.append(ds_sigs)
+
+if top_sigs:
+    top_combined = pd.concat(top_sigs)
+    n_plots = len(top_combined)
+
+    # Dynamic grid: up to 6 per dataset, max 12 total
+    n_cols = 3
+    n_rows = (n_plots + n_cols - 1) // n_cols
+    # Cap at 2 rows for readability
+    n_rows = min(n_rows, 2)
+    n_cols = min(n_plots, 3)
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, 6 * n_rows))
+    if n_rows == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten()
+
+    palette_colors = {
+        'normal': '#2ecc71',
+        'eutopic': '#3498db',
+        'ectopic': '#e74c3c',
+        'diseased': '#f1c40f'
+    }
+
+    for i, (_, row) in enumerate(top_combined.iterrows()):
+        if i >= len(axes):
+            break
+
+        ax = axes[i]
+        sig_id = row['Signature']
+        ds_name = row['Dataset']
+
+        ds_samples = df_sample[df_sample['batch'] == ds_name].index
+        plot_es = es_matrix.loc[sig_id, ds_samples]
+        plot_df = pd.DataFrame({
+            'Group': df_sample.loc[ds_samples, 'group'],
+            'Score': plot_es.values
+        })
+
+        groups_order = [g for g in ['normal', 'ectopic', 'eutopic', 'diseased']
+                       if g in plot_df['Group'].unique()]
+
+        sns.boxplot(data=plot_df, x='Group', y='Score', hue='Group',
+                   order=groups_order, palette=palette_colors, ax=ax,
+                   width=0.5, fliersize=0, legend=False)
+        sns.stripplot(data=plot_df, x='Group', y='Score', order=groups_order,
+                     color='black', alpha=0.4, size=4, jitter=0.2, ax=ax)
+
+        fdr_val = row['Omnibus_FDR']
+        ax.set_title(f"{row['Clean_Name']}\n{ds_name} - FDR: {fdr_val:.2e}",
+                    fontsize=10, fontweight='bold')
+        ax.set_ylabel("Enrichment Score")
+        ax.set_xlabel("")
+        ax.tick_params(axis='x', labelsize=9)
+        ax.grid(axis='y', linestyle='--', alpha=0.5)
+
+    # Hide unused subplots
+    for j in range(i + 1, len(axes)):
+        axes[j].set_visible(False)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(FIGURES_DIR, "differential_immune_boxplots.pdf"),
+               dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Boxplots saved to: {FIGURES_DIR}/differential_immune_boxplots.pdf")
+
+print("\nPhase 3b complete.")

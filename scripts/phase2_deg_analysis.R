@@ -1,7 +1,8 @@
 #!/usr/bin/env Rscript
 # ============================================================================
 # PROJECT 1: ENDOMETRIOSIS TRANSCRIPTOMICS
-# PHASE 2: DIFFERENTIAL EXPRESSION ANALYSIS (DEG) - FULLY FIXED VERSION
+# PHASE 2: DIFFERENTIAL EXPRESSION ANALYSIS (limma)
+# FIXED: Per-dataset analysis with pure normal controls
 # ============================================================================
 
 cat("Loading libraries...\n")
@@ -12,20 +13,20 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(tidyr)
   library(reshape2)
+  library(hgu133plus2.db)
+  library(AnnotationDbi)
 })
 
-cat("✓ Libraries loaded\n\n")
+cat("Libraries loaded\n\n")
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 args <- commandArgs(trailingOnly = TRUE)
 
-# Use current directory as default if no argument provided
 if (length(args) > 0) {
   PROJECT_DIR <- args[1]
 } else {
-  # Auto-detect: if running from scripts folder, go up one level
   if (file.exists("../data/processed")) {
     PROJECT_DIR <- ".."
   } else {
@@ -42,13 +43,14 @@ RESULTS_DIR <- file.path(PROJECT_DIR, "results", "deg_analysis")
 dir.create(FIGURES_DIR, recursive = TRUE, showWarnings = FALSE)
 dir.create(RESULTS_DIR, recursive = TRUE, showWarnings = FALSE)
 
-set.seed(42)  # Reproducibility
+set.seed(42)
 
 cat("Output figures:", FIGURES_DIR, "\n")
 cat("Output results:", RESULTS_DIR, "\n\n")
 
 cat(strrep("=", 70), "\n")
 cat("PHASE 2: DIFFERENTIAL EXPRESSION ANALYSIS (limma)\n")
+cat("PER-DATASET ANALYSIS WITH PURE NORMAL CONTROLS\n")
 cat(strrep("=", 70), "\n\n")
 
 # ============================================================================
@@ -66,203 +68,195 @@ if (!file.exists(sample_file)) {
   stop(paste("ERROR: Harmonized sample info not found at:", sample_file))
 }
 
-expr_data <- read.csv(expr_file, row.names = 1, check.names = FALSE)
-expr_matrix <- as.matrix(expr_data)
-
-cat("✓ Expression matrix loaded:", nrow(expr_matrix), "probes x", ncol(expr_matrix), "samples\n")
-cat("  Data range:", round(min(expr_matrix, na.rm = TRUE), 2), "to", 
-    round(max(expr_matrix, na.rm = TRUE), 2), "\n")
+expr_all <- read.csv(expr_file, row.names = 1, check.names = FALSE)
+expr_matrix <- as.matrix(expr_all)
 
 sample_info <- read.csv(sample_file, row.names = 1)
-cat("✓ Sample info loaded:", nrow(sample_info), "samples\n")
 
-# Check group distribution
-cat("  Groups:", paste(names(table(sample_info$group)), "=", 
-                       table(sample_info$group), collapse=", "), "\n")
-
-# Verify sample order
-if (!all(colnames(expr_matrix) == rownames(sample_info))) {
-  cat("WARNING: Sample order mismatch! Aligning...\n")
-  common_samples <- intersect(colnames(expr_matrix), rownames(sample_info))
-  expr_matrix <- expr_matrix[, common_samples]
-  sample_info <- sample_info[common_samples, ]
-  cat("  Aligned to", length(common_samples), "samples\n")
-}
-cat("✓ Sample order verified\n\n")
+cat("Total samples:", ncol(expr_matrix), "\n")
+cat("Groups:", paste(names(table(sample_info$group)), "=", 
+                     table(sample_info$group), collapse=", "), "\n\n")
 
 # ============================================================================
-# STEP 2: DESIGN MATRIX
+# STEP 2: PROBE-TO-GENE SYMBOL MAPPING (once, for all datasets)
 # ============================================================================
-cat("STEP 2: Creating experimental design...\n")
+cat("STEP 2: Mapping probes to gene symbols...\n")
 
-# Define group levels (all possible groups in the data)
-all_groups <- unique(sample_info$group)
-cat("  Groups found:", paste(all_groups, collapse=", "), "\n")
+probe_to_symbol <- AnnotationDbi::select(
+  hgu133plus2.db,
+  keys = rownames(expr_matrix),
+  columns = c("SYMBOL"),
+  keytype = "PROBEID"
+) %>%
+  filter(!is.na(SYMBOL) & SYMBOL != "") %>%
+  distinct(PROBEID, .keep_all = TRUE)
 
-# Set factor levels
-sample_info$group <- factor(sample_info$group, levels = all_groups)
-
-# Create design matrix
-design <- model.matrix(~ 0 + group, data = sample_info)
-colnames(design) <- gsub("group", "", colnames(design))
-
-cat("✓ Design matrix created\n")
-cat("  Design columns:", paste(colnames(design), collapse=", "), "\n")
-cat("  Samples per group:\n")
-print(table(sample_info$group))
-cat("\n")
+symbol_lookup <- setNames(probe_to_symbol$SYMBOL, probe_to_symbol$PROBEID)
+cat("Mapped", length(symbol_lookup), "of", nrow(expr_matrix), "probes to gene symbols\n\n")
 
 # ============================================================================
-# STEP 3: FIT LINEAR MODELS
+# STEP 3: PER-DATASET DIFFERENTIAL EXPRESSION
 # ============================================================================
-cat("STEP 3: Fitting linear models with limma...\n")
+cat("STEP 3: Running per-dataset differential expression...\n")
 
-# Check for samples with complete data
-if (ncol(expr_matrix) < 3) {
-  stop("ERROR: Not enough samples for differential expression analysis")
-}
+# Define datasets and their valid contrasts
+datasets <- list(
+  GSE25628 = list(
+    samples = rownames(sample_info)[sample_info$batch == "GSE25628"],
+    groups = c("ectopic", "eutopic", "normal"),
+    contrasts = c("ectopic_vs_normal", "eutopic_vs_normal", "ectopic_vs_eutopic")
+  ),
+  GSE7305 = list(
+    samples = rownames(sample_info)[sample_info$batch == "GSE7305"],
+    groups = c("diseased", "normal"),
+    contrasts = c("diseased_vs_normal")
+  )
+)
 
-fit <- lmFit(expr_matrix, design)
-cat("✓ Linear models fitted for", nrow(fit), "probes\n\n")
+all_results <- list()
+all_sig <- list()
+all_fits <- list()           # FIX (#11): store each dataset's fit2 + its
+all_contrast_cols <- list()  #  contrast names so MA plots can be generated
+                             #  per contrast below (previously the MA function
+                             #  was defined but never called, and fit2 was
+                             #  overwritten each loop, so no MA plot was produced).
 
-# ============================================================================
-# STEP 4: CONTRASTS
-# ============================================================================
-cat("STEP 4: Defining contrasts...\n")
+for (ds_name in names(datasets)) {
+  cat("\n", paste(rep("-", 60), collapse = ""), "\n")
+  cat("Processing:", ds_name, "\n")
+  cat(paste(rep("-", 60), collapse = ""), "\n")
+  
+  # Subset to this dataset
+  ds_samples <- datasets[[ds_name]]$samples
+  expr_ds <- expr_matrix[, ds_samples, drop = FALSE]
+  sample_ds <- sample_info[ds_samples, , drop = FALSE]
+  
+  cat("  Samples:", ncol(expr_ds), "\n")
+  cat("  Groups:", paste(names(table(sample_ds$group)), "=",
+                         table(sample_ds$group), collapse=", "), "\n")
+  
+  # Make sure group is a factor
+  sample_ds$group <- factor(sample_ds$group)
+  
+  # Create design matrix
+  design <- model.matrix(~ 0 + group, data = sample_ds)
+  colnames(design) <- gsub("group", "", colnames(design))
+  
+  cat("  Design columns:", paste(colnames(design), collapse=", "), "\n")
+  
+  # Fit model
+  fit <- lmFit(expr_ds, design)
+  
+  # Define contrasts for this dataset
+  groups_available <- levels(sample_ds$group)
+  contrast_list <- list()
+  
+  if (ds_name == "GSE25628") {
+    if ("ectopic" %in% groups_available && "normal" %in% groups_available) {
+      contrast_list$ectopic_vs_normal <- "ectopic - normal"
+    }
+    if ("eutopic" %in% groups_available && "normal" %in% groups_available) {
+      contrast_list$eutopic_vs_normal <- "eutopic - normal"
+    }
+    if ("ectopic" %in% groups_available && "eutopic" %in% groups_available) {
+      contrast_list$ectopic_vs_eutopic <- "ectopic - eutopic"
+    }
+  } else if (ds_name == "GSE7305") {
+    if ("diseased" %in% groups_available && "normal" %in% groups_available) {
+      contrast_list$diseased_vs_normal <- "diseased - normal"
+    }
+  }
+  
+  if (length(contrast_list) == 0) {
+    cat("  No valid contrasts for", ds_name, "\n")
+    next
+  }
+  
+  cat("  Contrasts:", paste(names(contrast_list), collapse=", "), "\n")
+  
+  contrast_matrix <- do.call(makeContrasts, c(contrast_list, list(levels = design)))
+  
+  # Apply eBayes
+  fit2 <- contrasts.fit(fit, contrast_matrix)
+  fit2 <- eBayes(fit2)
 
-# Build contrast matrix dynamically based on available groups
-contrast_list <- list()
-
-# Ectopic vs Normal (if both exist)
-if ("ectopic" %in% all_groups && "normal" %in% all_groups) {
-  contrast_list$ectopic_vs_normal <- "ectopic - normal"
-}
-
-# Eutopic vs Normal (if both exist)
-if ("eutopic" %in% all_groups && "normal" %in% all_groups) {
-  contrast_list$eutopic_vs_normal <- "eutopic - normal"
-}
-
-# Ectopic vs Eutopic (if both exist)
-if ("ectopic" %in% all_groups && "eutopic" %in% all_groups) {
-  contrast_list$ectopic_vs_eutopic <- "ectopic - eutopic"
-}
-
-# Diseased vs Normal (if both exist)
-if ("diseased" %in% all_groups && "normal" %in% all_groups) {
-  contrast_list$diseased_vs_normal <- "diseased - normal"
-}
-
-# Additional contrasts if applicable
-if ("ectopic" %in% all_groups && "diseased" %in% all_groups) {
-  contrast_list$ectopic_vs_diseased <- "ectopic - diseased"
-}
-
-if ("eutopic" %in% all_groups && "diseased" %in% all_groups) {
-  contrast_list$eutopic_vs_diseased <- "eutopic - diseased"
-}
-
-cat("  Defining", length(contrast_list), "contrasts:\n")
-for (name in names(contrast_list)) {
-  cat("    -", name, ":", contrast_list[[name]], "\n")
-}
-
-if (length(contrast_list) == 0) {
-  stop("ERROR: No valid contrasts can be defined with available groups")
-}
-
-contrast_matrix <- do.call(makeContrasts, c(contrast_list, list(levels = design)))
-cat("✓ Contrast matrix created with", ncol(contrast_matrix), "contrasts\n\n")
-
-# ============================================================================
-# STEP 5: EMPIRICAL BAYES
-# ============================================================================
-cat("STEP 5: Applying empirical Bayes statistics...\n")
-fit2 <- contrasts.fit(fit, contrast_matrix)
-fit2 <- eBayes(fit2)
-cat("✓ Empirical Bayes applied\n\n")
-
-# ============================================================================
-# STEP 6: EXTRACT RESULTS
-# ============================================================================
-cat("STEP 6: Extracting DEG results...\n")
-
-extract_deg <- function(fit2_obj, contrast_name) {
-  results <- topTable(fit2_obj, coef = contrast_name, number = Inf,
-                      adjust.method = "BH", sort.by = "P")
-  results$probe_id <- rownames(results)
-  results <- results[, c("probe_id", "logFC", "AveExpr", "t", "P.Value", "adj.P.Val")]
-  return(results)
-}
-
-results_list <- list()
-for (contrast_name in colnames(contrast_matrix)) {
-  results_list[[contrast_name]] <- extract_deg(fit2, contrast_name)
-}
-
-cat("✓ Results extracted for", length(results_list), "contrasts\n\n")
-
-# ============================================================================
-# STEP 7: SIGNIFICANT GENES
-# ============================================================================
-cat("STEP 7: Identifying significant probes (FDR < 0.05, |logFC| > 1)...\n")
-
-fdr_threshold <- 0.05
-logfc_threshold <- 1
-
-sig_genes <- list()
-for (contrast_name in names(results_list)) {
-  res <- results_list[[contrast_name]]
-  sig <- res[res$adj.P.Val < fdr_threshold & abs(res$logFC) > logfc_threshold, ]
-  sig_genes[[contrast_name]] <- sig
-}
-
-cat("  Significant probes per contrast:\n")
-for (name in names(sig_genes)) {
-  n_sig <- nrow(sig_genes[[name]])
-  if (n_sig > 0) {
-    n_up <- sum(sig_genes[[name]]$logFC > 0)
-    n_down <- sum(sig_genes[[name]]$logFC < 0)
-    cat(sprintf("    %s: %d (%d up, %d down)\n", name, n_sig, n_up, n_down))
-  } else {
-    cat(sprintf("    %s: 0\n", name))
+  # FIX (#11): retain this dataset's fit + contrast names for MA plots later
+  all_fits[[ds_name]] <- fit2
+  all_contrast_cols[[ds_name]] <- colnames(contrast_matrix)
+  
+  # Extract results for each contrast
+  for (contrast_name in colnames(contrast_matrix)) {
+    results <- topTable(fit2, coef = contrast_name, number = Inf,
+                        adjust.method = "BH", sort.by = "P")
+    results$probe_id <- rownames(results)
+    results$gene_symbol <- ifelse(
+      results$probe_id %in% names(symbol_lookup),
+      symbol_lookup[results$probe_id],
+      results$probe_id
+    )
+    results <- results[, c("probe_id", "gene_symbol", "logFC", "AveExpr",
+                           "t", "P.Value", "adj.P.Val")]
+    
+    # Save full results
+    safe_name <- paste0(ds_name, "_", contrast_name)
+    write.csv(results,
+              file.path(RESULTS_DIR, paste0(safe_name, "_full_results.csv")),
+              row.names = FALSE)
+    
+    # Save significant genes
+    sig <- results[results$adj.P.Val < 0.05 & abs(results$logFC) > 1, ]
+    write.csv(sig,
+              file.path(RESULTS_DIR, paste0(safe_name, "_significant.csv")),
+              row.names = FALSE)
+    
+    cat("    ✓", contrast_name, ":", nrow(sig), "significant DEGs\n")
+    
+    all_results[[safe_name]] <- results
+    all_sig[[safe_name]] <- sig
   }
 }
-cat("\n")
 
 # ============================================================================
-# STEP 8: SAVE RESULTS
+# STEP 4: CROSS-DATASET COMPARISON (OVERLAP)
 # ============================================================================
-cat("STEP 8: Saving results...\n")
+cat("\n", paste(rep("=", 70), collapse = ""), "\n")
+cat("CROSS-DATASET DEG OVERLAP\n")
+cat(paste(rep("=", 70), collapse = ""), "\n")
 
-# Save full results
-for (name in names(results_list)) {
-  safe_name <- gsub("[^A-Za-z0-9_]", "_", name)
-  write.csv(results_list[[name]],
-            file.path(RESULTS_DIR, paste0(safe_name, "_full_results.csv")),
+# Find overlapping DEGs between datasets
+if ("GSE25628_ectopic_vs_normal" %in% names(all_sig) && 
+    "GSE7305_diseased_vs_normal" %in% names(all_sig)) {
+  
+  genes_25628 <- all_sig$GSE25628_ectopic_vs_normal$probe_id
+  genes_7305 <- all_sig$GSE7305_diseased_vs_normal$probe_id
+  
+  overlap <- intersect(genes_25628, genes_7305)
+  
+  cat("\nOverlap between GSE25628 (ectopic vs normal) and GSE7305 (diseased vs normal):\n")
+  cat("  GSE25628 DEGs:", length(genes_25628), "\n")
+  cat("  GSE7305 DEGs: ", length(genes_7305), "\n")
+  cat("  Overlap:      ", length(overlap), "\n")
+  cat("  Overlap proportion:", round(length(overlap)/min(length(genes_25628), length(genes_7305))*100, 1), "%\n")
+  
+  # Save overlap
+  overlap_df <- data.frame(probe_id = overlap)
+  write.csv(overlap_df,
+            file.path(RESULTS_DIR, "cross_dataset_DEG_overlap.csv"),
             row.names = FALSE)
 }
 
-# Save significant genes
-for (name in names(sig_genes)) {
-  if (nrow(sig_genes[[name]]) > 0) {
-    safe_name <- gsub("[^A-Za-z0-9_]", "_", name)
-    write.csv(sig_genes[[name]],
-              file.path(RESULTS_DIR, paste0(safe_name, "_significant.csv")),
-              row.names = FALSE)
-  }
-}
-
-cat("✓ Results saved to:", RESULTS_DIR, "\n\n")
-
 # ============================================================================
-# STEP 9: VOLCANO PLOTS
+# STEP 5: GENERATE FIGURES (combined)
 # ============================================================================
-cat("STEP 9: Creating volcano plots...\n")
+cat("\n", paste(rep("=", 70), collapse = ""), "\n")
+cat("GENERATING FIGURES\n")
+cat(paste(rep("=", 70), collapse = ""), "\n")
+
+# ---- Volcano plots ----
+cat("\nCreating volcano plots...\n")
 
 plot_volcano <- function(results, title, filename) {
   if (nrow(results) == 0) {
-    cat("  Warning: No results to plot for", title, "\n")
     return(NULL)
   }
   
@@ -288,14 +282,13 @@ plot_volcano <- function(results, title, filename) {
       legend.position = "bottom"
     )
   
-  # Add top genes labels
-  top_genes <- results %>% 
-    filter(adj.P.Val < 0.05) %>% 
-    arrange(P.Value) %>% 
+  top_genes <- results %>%
+    filter(adj.P.Val < 0.05) %>%
+    arrange(P.Value) %>%
     head(10)
   
   if (nrow(top_genes) > 0) {
-    p <- p + geom_text_repel(data = top_genes, aes(label = probe_id), 
+    p <- p + geom_text_repel(data = top_genes, aes(label = gene_symbol),
                              size = 3, max.overlaps = 10)
   }
   
@@ -303,68 +296,71 @@ plot_volcano <- function(results, title, filename) {
   return(p)
 }
 
-volcano_count <- 0
-for (name in names(results_list)) {
+for (name in names(all_results)) {
   safe_name <- gsub("[^A-Za-z0-9_]", "_", name)
   filename <- file.path(FIGURES_DIR, paste0("01_volcano_", safe_name, ".pdf"))
-  plot_volcano(results_list[[name]], 
+  plot_volcano(all_results[[name]], 
                paste(gsub("_", " ", name), "- Volcano Plot"),
                filename)
-  volcano_count <- volcano_count + 1
-  cat("  ✓ Volcano plot", volcano_count, ":", name, "\n")
+  cat("  Volcano plot:", name, "\n")
 }
-cat("\n")
 
-# ============================================================================
-# STEP 10: MA PLOTS
-# ============================================================================
-cat("STEP 10: Creating MA plots...\n")
-
-if (ncol(fit2) > 0) {
-  pdf(file.path(FIGURES_DIR, "02_MA_plots.pdf"), width = 12, height = 10)
-  par(mfrow = c(2, 2), mar = c(4, 4, 3, 2))
-  
-  n_plots <- min(ncol(fit2), 4)
-  for (i in 1:n_plots) {
-    contrast_name <- colnames(fit2)[i]
-    limma::plotMA(fit2, coef = i, 
-                  main = paste(gsub("_", " ", contrast_name)), 
+# ---- MA plots ----
+# FIX (#11): the previous version defined plot_ma_combined() but never
+# called it, and relied on a single leftover `fit2` (only the last
+# dataset's). No MA plot was ever produced despite the console printing
+# "Creating MA plots...". Below, each dataset's stored fit (all_fits) is
+# used directly to produce one real, saved plot per contrast.
+cat("\nCreating MA plots...\n")
+ma_plots_created <- 0
+for (ds_name in names(all_fits)) {
+  ds_fit <- all_fits[[ds_name]]
+  contrast_cols <- all_contrast_cols[[ds_name]]
+  n_col <- min(length(contrast_cols), 2)
+  n_row <- ceiling(length(contrast_cols) / n_col)
+  pdf(file.path(FIGURES_DIR, paste0("02_MA_plots_", ds_name, ".pdf")),
+      width = 6 * n_col, height = 6 * n_row)
+  par(mfrow = c(n_row, n_col), mar = c(4, 4, 3, 2))
+  for (i in seq_along(contrast_cols)) {
+    limma::plotMA(ds_fit, coef = i,
+                  main = paste(ds_name, "-", gsub("_", " ", contrast_cols[i])),
                   ylim = c(-6, 6))
     abline(h = c(-1, 1), col = "red", lty = 2, lwd = 2)
+    ma_plots_created <- ma_plots_created + 1
   }
   dev.off()
-  cat("✓ MA plots saved (showing first", n_plots, "contrasts)\n\n")
-} else {
-  cat("  Warning: No contrasts available for MA plots\n\n")
+  cat("  MA plots saved for", ds_name, "\n")
 }
+cat("  Total MA plots created:", ma_plots_created, "\n")
 
-# ============================================================================
-# STEP 11: HEATMAP OF TOP GENES
-# ============================================================================
-cat("STEP 11: Creating heatmap of top DEGs...\n")
+# ---- Heatmap ----
+cat("\nCreating heatmap...\n")
 
-# Use first contrast with significant genes
+# Use the first contrast with significant genes
 sig_contrast <- NULL
-for (name in names(sig_genes)) {
-  if (nrow(sig_genes[[name]]) > 0) {
+for (name in names(all_sig)) {
+  if (nrow(all_sig[[name]]) > 0) {
     sig_contrast <- name
     break
   }
 }
 
-if (!is.null(sig_contrast) && nrow(sig_genes[[sig_contrast]]) > 0) {
-  top_genes <- sig_genes[[sig_contrast]] %>%
+if (!is.null(sig_contrast) && nrow(all_sig[[sig_contrast]]) > 0) {
+  top_genes_df <- all_sig[[sig_contrast]] %>%
     arrange(P.Value) %>%
-    head(50) %>%
-    pull(probe_id)
+    head(50)
+  top_genes <- top_genes_df$probe_id
   
   if (length(top_genes) > 0) {
     top_expr <- expr_matrix[top_genes, ]
-    
-    # Scale expression
     top_expr_scaled <- t(scale(t(top_expr)))
     
-    # Define group colors
+    row_labels <- top_genes_df$gene_symbol[match(rownames(top_expr_scaled), top_genes_df$probe_id)]
+    dup_labels <- duplicated(row_labels) | duplicated(row_labels, fromLast = TRUE)
+    row_labels[dup_labels] <- paste0(row_labels[dup_labels], " (",
+                                     rownames(top_expr_scaled)[dup_labels], ")")
+    rownames(top_expr_scaled) <- row_labels
+    
     group_colors <- c(
       normal = "#2ecc71",
       ectopic = "#e74c3c",
@@ -392,27 +388,20 @@ if (!is.null(sig_contrast) && nrow(sig_genes[[sig_contrast]]) > 0) {
            cex = 0.8)
     
     dev.off()
-    cat("✓ Heatmap saved\n\n")
-  } else {
-    cat("  No top genes found for heatmap\n\n")
+    cat("  Heatmap saved\n")
   }
-} else {
-  cat("  No significant genes found for heatmap\n\n")
 }
 
-# ============================================================================
-# STEP 12: EXPRESSION PROFILES FOR TOP GENES
-# ============================================================================
-cat("STEP 12: Creating expression profiles for top genes...\n")
+# ---- Expression Profiles ----
+cat("\nCreating expression profiles...\n")
 
-if (!is.null(sig_contrast) && nrow(sig_genes[[sig_contrast]]) > 0) {
-  # Get top 6 genes (up and down)
-  top_up <- sig_genes[[sig_contrast]] %>%
+if (!is.null(sig_contrast) && nrow(all_sig[[sig_contrast]]) > 0) {
+  top_up <- all_sig[[sig_contrast]] %>%
     filter(logFC > 0) %>%
     arrange(P.Value) %>%
     head(3)
   
-  top_down <- sig_genes[[sig_contrast]] %>%
+  top_down <- all_sig[[sig_contrast]] %>%
     filter(logFC < 0) %>%
     arrange(P.Value) %>%
     head(3)
@@ -420,16 +409,18 @@ if (!is.null(sig_contrast) && nrow(sig_genes[[sig_contrast]]) > 0) {
   top_genes_plot <- rbind(top_up, top_down)
   
   if (nrow(top_genes_plot) > 0) {
-    # Prepare data for plotting
     expr_subset <- expr_matrix[top_genes_plot$probe_id, ]
     expr_melted <- melt(as.matrix(expr_subset))
     colnames(expr_melted) <- c("Probe", "Sample", "Expression")
     expr_melted$Group <- sample_info[expr_melted$Sample, "group"]
-    expr_melted$Probe <- factor(expr_melted$Probe, levels = top_genes_plot$probe_id)
+    
+    symbol_map <- setNames(top_genes_plot$gene_symbol, top_genes_plot$probe_id)
+    expr_melted$Gene <- symbol_map[as.character(expr_melted$Probe)]
+    expr_melted$Gene <- factor(expr_melted$Gene, levels = unique(symbol_map[top_genes_plot$probe_id]))
     
     p <- ggplot(expr_melted, aes(x = Group, y = Expression, fill = Group)) +
       geom_boxplot(alpha = 0.7, outlier.size = 0.5) +
-      facet_wrap(~ Probe, scales = "free_y", ncol = 3) +
+      facet_wrap(~ Gene, scales = "free_y", ncol = 3) +
       scale_fill_manual(values = c(normal = "#2ecc71", ectopic = "#e74c3c",
                                    eutopic = "#3498db", diseased = "#f1c40f")) +
       theme_minimal() +
@@ -443,36 +434,26 @@ if (!is.null(sig_contrast) && nrow(sig_genes[[sig_contrast]]) > 0) {
     
     ggsave(file.path(FIGURES_DIR, "04_top_genes_expression_profiles.pdf"),
            p, width = 12, height = 8, dpi = 300)
-    cat("✓ Expression profiles saved\n\n")
+    cat("  Expression profiles saved\n")
   }
-} else {
-  cat("  No significant genes found for expression profiles\n\n")
 }
 
 # ============================================================================
 # SUMMARY
 # ============================================================================
-cat(strrep("=", 70), "\n")
+cat("\n", paste(rep("=", 70), collapse = ""), "\n")
 cat("PHASE 2 COMPLETE\n")
-cat(strrep("=", 70), "\n")
+cat(paste(rep("=", 70), collapse = ""), "\n")
 cat("Method: limma (Linear Models for Microarray)\n")
 cat("Correction: Benjamini-Hochberg FDR\n\n")
 
-cat("Contrasts analyzed:\n")
-for (i in 1:length(names(results_list))) {
-  cat(sprintf("  %d. %s\n", i, names(results_list)[i]))
-}
-
-cat("\nSignificant genes (FDR < 0.05, |logFC| > 1):\n")
-for (name in names(sig_genes)) {
-  if (nrow(sig_genes[[name]]) > 0) {
-    cat(sprintf("  %s: %d genes\n", name, nrow(sig_genes[[name]])))
-  } else {
-    cat(sprintf("  %s: 0 genes\n", name))
-  }
+cat("Per-dataset differential expression completed:\n")
+for (name in names(all_sig)) {
+  cat(sprintf("  %s: %d DEGs\n", name, nrow(all_sig[[name]])))
 }
 
 cat("\nOutput files:\n")
 cat(sprintf("  - Results: %s\n", RESULTS_DIR))
 cat(sprintf("  - Figures: %s\n", FIGURES_DIR))
-cat("\n✓✓✓ Ready for Phase 3: Gene Mapping & Immune Profiling ✓✓✓\n")
+
+cat("\nReady for Phase 3: Gene Mapping & Immune Profiling ")

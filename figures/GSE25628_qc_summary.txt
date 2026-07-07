@@ -1,0 +1,12 @@
+QC Summary for GSE25628
+==================================================
+Total samples: 22
+Total probes: 22277
+Groups:
+group
+ectopic    8
+eutopic    8
+normal     6
+Expression range: 1.39 - 14.15
+NAs: 0
+Log transformed: False

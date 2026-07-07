@@ -1,197 +1,208 @@
-# Endometriosis Transcriptomics: A Systems Biology Pipeline
+# Endometriosis Transcriptomics: Per-Dataset Analysis of Gene Expression, Immune Signatures, and Functional Pathways
+
+> A reproducible bioinformatics pipeline integrating two independent transcriptomic datasets to characterize the molecular landscape of endometriosis, with cross-cohort replication of lesion-vs-control findings.
+
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
+![R](https://img.shields.io/badge/R-4.3+-276DC3?logo=r&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Bioinformatics](https://img.shields.io/badge/Bioinformatics-Transcriptomics-orange)
+
+---
+
+## Highlights
+
+- 2 independent GEO datasets, 2 different Affymetrix platforms
+- 42 samples across ectopic lesion, eutopic, and control tissue
+- Per-dataset statistical design to avoid cross-platform confounding
+- 3,604 DEGs identified in ectopic endometrial lesions
+- Lesion-vs-control DEGs **replicated across both cohorts** (608-gene overlap)
+- 4,872 immune signatures profiled (MSigDB C7 ImmuneSigDB)
+- Fully reproducible Python + R workflow
+
+---
 
 ## Research Question
-Which genes, immune cell types, and biological pathways drive the inflammatory and fibrotic microenvironment of ectopic endometrial lesions?
+
+> Which genes, immune signatures, and biological pathways characterize endometriotic lesion tissue relative to control endometrium, and do these signatures replicate across independent patient cohorts?
 
 ---
 
-## Project Summary
-This repository contains a **complete, reproducible bioinformatics pipeline** integrating two independent Affymetrix microarray datasets (GSE25628 and GSE7305, total n=42 samples). The pipeline handles everything from raw GEO data download to publication-ready figures, with a focus on **cross-platform harmonization**, **differential expression**, **immune deconvolution**, and **pathway enrichment**.
+## Datasets
+
+| Dataset | Samples | Groups | Platform |
+|:---|---:|:---|:---|
+| **GSE25628** | 22 | Ectopic lesion (8), Eutopic (8), Normal (6) | Affymetrix GPL571 |
+| **GSE7305** | 20 | Ovarian lesion (10), Matched control (10) | Affymetrix GPL570 |
+
+**Total samples:** 42
+
+Both datasets contain a **lesion vs. control-endometrium comparison**, run on independent cohorts and different platforms — the basis for the cross-cohort replication in this project. Group definitions were verified against the original GEO records and source publications (Crispi et al. 2013 for GSE25628; Hever et al. 2007 for GSE7305). See [docs/dataset_notes.md](docs/dataset_notes.md) for full detail, including the important note that GSE7305's "diseased" group is ovarian endometriosis **lesion** tissue, not eutopic endometrium.
 
 ---
 
-## Pipeline Architecture
-
+## Workflow
 
 ```
-Phase 0: Data Loading & QC (Python)
-↓
-Phase 1: Batch Correction & Harmonization (Python + ComBat)
-↓
-Phase 2: Differential Expression (R + limma)
-↓
-Phase 3a: Probe-to-Gene Mapping (R) + ssGSEA Immune Deconvolution (Python)
-↓
-Phase 3b: Statistical Testing of Immune Changes (Python)
-↓
-Phase 3c: GO & KEGG Pathway Enrichment (R + clusterProfiler)
+GEO Datasets → Phase 0 (QC) → Phase 1 (Harmonization)
+    → Phase 2 (Per-Dataset DEG) → Phase 3A (Gene Mapping + ssGSEA)
+    → Phase 3B (Immune Statistics) → Phase 3C (GO + KEGG Enrichment)
+    → Cross-Cohort Interpretation
 ```
 
 ---
 
-## Phase Details
+## Methods
 
-### Phase 0: Data Loading & Quality Control
-- **Script**: `scripts/phase0_data_loading.py`
-- Downloads and processes GSE25628 (22 samples) and GSE7305 (20 samples)
-- Performs log transformation, group assignment, and comprehensive QC (boxplots, density, MDS, mean expression)
+| Step | Method |
+|:---|:---|
+| Data acquisition | GEOparse |
+| Quality control | Boxplots, density plots, MDS |
+| Cross-study handling | Per-dataset analysis (see [docs/methodology.md](docs/methodology.md)) |
+| Differential expression | limma + empirical Bayes |
+| Multiple testing | Benjamini–Hochberg FDR |
+| Immune profiling | ssGSEA, MSigDB C7 ImmuneSigDB |
+| Statistical testing | Kruskal–Wallis + Mann-Whitney post-hoc |
+| Functional enrichment | clusterProfiler (GO-BP, GO-CC, KEGG) |
 
-### Phase 1: Harmonization & Batch Correction
-- **Script**: `scripts/phase1_harmonization.py`
-- Aligns 22,277 common probes (100% retention from GSE25628)
-- Applies **ComBat** batch correction while preserving group effects
-- Validates correction with PCA (PC1 variance reduced from 46.3% to 32.2%)
-
-### Phase 2: Differential Expression Analysis
-- **Script**: `scripts/phase2_deg_analysis.R`
-- Uses **limma + eBayes** for robust statistical testing
-- Four contrasts with Benjamini-Hochberg FDR correction
-
-**Significant DEGs (FDR < 0.05, |logFC| > 1)**:
-
-| Comparison              | Total | Up   | Down |
-|-------------------------|-------|------|------|
-| Ectopic vs Normal       | 1,490 | 795  | 695  |
-| Diseased vs Normal      | 1,893 | 991  | 902  |
-| Eutopic vs Normal       | 216   | 91   | 125  |
-| Ectopic vs Eutopic      | 145   | 137  | 8    |
-| **Ectopic vs Diseased** | **0** | —    | —    |
-
-> **Note:** The 0 DEGs between ectopic and diseased validates cross-dataset harmonization — ovarian and peritoneal endometriosis are molecularly indistinguishable at the transcriptomic level.
-
-### Phase 3: Immune Profiling & Pathway Analysis
-- **3a**: Probe-to-gene mapping (22,277 probes → 13,631 unique genes) + ssGSEA using MSigDB C8 cell-type signatures
-- **3b**: Kruskal-Wallis + post-hoc testing → **526 significant immune signatures** (FDR < 0.05)
-- **3c**: GO Biological Process and KEGG pathway enrichment
-
-**Notable Enriched Pathways**:
-- Cell cycle & mitotic regulation
-- ECM-receptor interaction & focal adhesion (fibrosis)
-- Complement & coagulation cascades (inflammation)
+The two datasets use different Affymetrix platforms and cannot be pooled at the sample level without confounding platform with biology. Analyses were therefore run independently within each dataset, and the two lesion-vs-control results were compared at the gene-list level for replication. See [docs/methodology.md](docs/methodology.md).
 
 ---
 
-## Installation & Running the Pipeline
+## Results
 
-### Requirements
+### Differential Expression
 
-**Python**:
-```bash
-pip install pandas numpy scipy scikit-learn matplotlib seaborn GEOparse gseapy pycombat statsmodels
-```
-**R (Bioconductor)**:
-```
-RBiocManager::install(c("limma", "clusterProfiler", "org.Hs.eg.db", "hgu133plus2.db", "AnnotationDbi"))
-install.packages(c("ggplot2", "ggrepel", "dplyr"))
-```
+Per-dataset analysis (FDR < 0.05, |log₂FC| > 1):
 
-### Project Structure
+| Comparison | Dataset | DEGs | Up | Down |
+|:---|:---|---:|---:|---:|
+| Ectopic lesion vs Normal | GSE25628 | 3,604 | 1,150 | 1,742 |
+| Eutopic vs Normal | GSE25628 | 2,015 | 521 | 1,112 |
+| Ectopic vs Eutopic | GSE25628 | 21 | 19 | 0 |
+| Ovarian lesion vs Control | GSE7305 | 1,603 | 729 | 552 |
+
+**Cross-cohort replication:** the two lesion-vs-control comparisons (ectopic-vs-normal in GSE25628, ovarian-lesion-vs-control in GSE7305) share **608 DEGs (37.9% of the smaller set)** — replication across two independent cohorts, two platforms, and two slightly different control definitions.
+
+*Not computed, by design:* comparisons pairing GSE25628-only groups against GSE7305-only groups. These would confound biology with platform/cohort and cannot be validly computed from these two datasets.
+
+---
+
+### Immune Signature Profiling
+
+ssGSEA against 4,872 MSigDB C7 ImmuneSigDB gene sets, analyzed per dataset:
+
+| Dataset | Significant signatures (FDR < 0.05) |
+|:---|:---|
+| GSE25628 | 1,716 / 4,872 (35.2%) |
+| GSE7305 | 3,542 / 4,872 (72.7%) |
+
+The dominant immune axis in both datasets tracked group membership (PC1 = 60.9% and 75.6% of variance in GSE25628 and GSE7305 respectively), consistent with a coordinated immune/inflammatory shift rather than independent per-signature effects. See [docs/validation.md](docs/validation.md) for the PCA diagnostic and its caveats.
+
+---
+
+### Pathway Enrichment
+
+| Comparison | GO BP | GO CC | KEGG (total / flagged) |
+|:---|---:|---:|---:|
+| GSE25628 Ectopic vs Normal | 883 | 124 | 94 / 18 |
+| GSE25628 Eutopic vs Normal | 219 | 64 | 48 / 4 |
+| GSE25628 Ectopic vs Eutopic | 0 | 3 | 0 / — |
+| GSE7305 Lesion vs Control | 1,060 | 117 | 52 / 8 |
+
+Several infection-associated KEGG pathways (e.g. HTLV-1 infection, Malaria, *S. aureus* infection) were flagged as likely gene-overlap artifacts arising from shared complement and inflammatory gene membership rather than evidence of infectious processes. A `likely_gene_overlap_artifact` column is included in each KEGG result table. See [docs/validation.md](docs/validation.md) for the cross-dataset recurrence evidence.
+
+---
+
+## Biological Insights
+
+**Cell cycle and proliferation:** Mitotic progression genes were significantly upregulated in ectopic lesions, consistent with enhanced proliferative activity.
+
+**ECM remodeling and fibrosis:** Focal adhesion, ECM-receptor interaction, and integrin signaling enriched across contrasts, suggesting active tissue remodeling.
+
+**Immune dysregulation:** A coordinated immune signature shift, together with complement and coagulation pathway enrichment, was observed in both cohorts independently — the most consistent cross-dataset theme.
+
+**Eutopic endometrium is transcriptomically altered:** 2,015 DEGs vs. healthy endometrium suggest eutopic tissue from patients is not equivalent to normal endometrium.
+
+**Lesion and eutopic tissue are molecularly similar within GSE25628:** only 21 DEGs between ectopic and eutopic tissue, suggesting a largely shared transcriptional program.
+
+---
+
+## What This Project Does Not Support
+
+- Any comparison pairing GSE25628-only groups against GSE7305-only groups (would confound biology with platform/cohort)
+- Interpretation of immune-signature hit rates as thousands of independent discoveries (a single dominant axis drives the signal in each dataset)
+- Menstrual-cycle-controlled claims for GSE7305 beyond what the paired within-patient design supports (see docs)
+
+---
+
+## Limitations
+
+- Bulk microarray data rather than RNA-seq
+- Moderate per-group sample sizes (n = 6–10)
+- Different platforms prevent sample-level pooling; replication is at the gene-list level
+- GSE7305 uses a paired within-patient design that the current analysis treats as unpaired (a conservative choice; see [docs/methodology.md](docs/methodology.md))
+- Immune signature results reflect correlated gene sets driven by a small number of dominant axes
+- ssGSEA findings are computational estimates, not validated experimentally
+
+---
+
+## Repository Structure
+
 ```
 endometriosis-transcriptomics/
 ├── README.md
+├── docs/
+│   ├── methodology.md
+│   ├── dataset_notes.md
+│   └── validation.md
 ├── scripts/
 │   ├── phase0_data_loading.py
 │   ├── phase1_harmonization.py
 │   ├── phase2_deg_analysis.R
-│   ├── phase3a_probe_to_gene_mapping.R
-│   ├── phase3a_immune_deconvolution.py
+│   ├── phase3a1_probe_to_gene_mapping.R
+│   ├── phase3a2_immune_deconvolution.py
 │   ├── phase3b_differential_immune_infiltration.py
 │   └── phase3c_pathway_enrichment.R
 ├── data/
-│   ├── raw/              ← GEO downloads (auto-created)
-│   └── processed/        ← Phase output (auto-created)
-├── figures/              ← Publication-quality PDFs
-└── results/              ← CSV result tables
+│   ├── raw/
+│   └── processed/
+├── figures/
+└── results/
 ```
 
 ---
 
-## Quick Start
+## Reproducibility
 
 ```bash
-# Clone repo
 git clone https://github.com/Theyasna/endometriosis-transcriptomics.git
 cd endometriosis-transcriptomics
 
-# Phase 0: Download & QC (30-45 min, ~2 GB)
 python scripts/phase0_data_loading.py
-
-# Phase 1: Harmonization (5-10 min)
 python scripts/phase1_harmonization.py
-
-# Phase 2: DEG Analysis (10-15 min)
 Rscript scripts/phase2_deg_analysis.R
-
-# Phase 3a: Gene Mapping + Immune Deconvolution (15-20 min)
-Rscript scripts/phase3a_probe_to_gene_mapping.R
-python scripts/phase3a_immune_deconvolution.py
-
-# Phase 3b: Immune Statistics (5 min)
+Rscript scripts/phase3a1_probe_to_gene_mapping.R
+python scripts/phase3a2_immune_deconvolution.py
 python scripts/phase3b_differential_immune_infiltration.py
-
-# Phase 3c: Pathway Enrichment (10 min)
 Rscript scripts/phase3c_pathway_enrichment.R
 ```
 
-**Total runtime:** ~90 minutes (first run includes data download)
+---
+
+## Tools & Packages
+
+**Python:** pandas, numpy, scipy, scikit-learn, matplotlib, seaborn, GEOparse, GSEApy, statsmodels
+
+**R:** limma, clusterProfiler, ggplot2, ggrepel, AnnotationDbi, org.Hs.eg.db, hgu133plus2.db
 
 ---
 
-## Key Findings
+## Author
 
-### Molecular Signature of Ectopic Tissue
+**Yasna Dehestan**
+*Bioinformatics · Computational Biology · Transcriptomics · Women's Health Genomics*
 
-1. **Proliferative Gene Expression** 
-   -Significant upregulation of cell cycle and mitotic pathways
-   -Supports aggressive growth and survival of ectopic lesions outside the uterus
-
-2. **Fibrotic Remodeling** 
-   - Elevated signatures of adventitial fibroblasts and smooth muscle cells
-   - Active extracellular matrix (ECM) remodeling and tissue restructuring
-
-3. **Chronic Inflammation** 
-   - Enrichment of complement cascade and coagulation pathways
-   - 526 out of 830 immune cell-type signatures show significant alteration (FDR < 0.05)
-
-4. **Immune Tolerance** 
-   - Evidence of both pro- and anti-inflammatory signals (M1/M2 macrophage signatures)
-   - Suggests establishment of immune tolerance that allows lesion persistence
-   
-###  Graded Disease Progression Model
-
-The pipeline revealed a clear molecular gradient:
-Normal → Eutopic → Ectopic ≈ Diseased
-
-1. **Eutopic endometrium shows minimal pathway dysregulation (0 GO BP terms)** 
-
-2. **Ectopic lesions show strong activation (1,490 DEGs)** 
-
-3. **Diseased tissue shows the strongest signal (1,893 DEGs)** 
-
-4. **Ectopic and diseased are molecularly identical (0 DEGs between them)** 
-
-This supports the hypothesis that endometriosis is a spectrum disorder where eutopic tissue exists in a "primed" state before lesion formation.
----
-
-## Limitations & Caveats 
-
-Microarray-based — probe-level data, not RNA-seq
-
-Moderate sample sizes per subgroup (n=8 for ectopic/eutopic)
-
-Computational immune estimates (ssGSEA) — requires experimental validation
-
-Observational study — findings are correlational, not causal
-
----
-
-
-## Contact
-
-**Yasna Dehestan**  
-Bioinformatics | Women's Health Genomics  
-Email: theyasnad@gmail.com  
-GitHub: [@Theyasna](https://github.com/Theyasna)
+📧 theyasnad@gmail.com · 🔗 [github.com/Theyasna](https://github.com/Theyasna)
 
 ---
 

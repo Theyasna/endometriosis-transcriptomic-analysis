@@ -8,7 +8,7 @@ suppressPackageStartupMessages({
   library(hgu133plus2.db)
   library(dplyr)
 })
-cat("✓ Packages loaded\n\n")
+cat("Packages loaded\n\n")
 
 # ============================================================================
 # CONFIGURATION - DYNAMIC PATH DETECTION
@@ -67,6 +67,6 @@ expr_collapsed <- expr_mapped %>%
 rownames(expr_collapsed) <- expr_collapsed$SYMBOL
 expr_collapsed <- expr_collapsed %>% dplyr::select(-SYMBOL, -Variance)
 
-# 4. Save the publication-ready gene expression matrix
+# 4. Save the gene-level expression matrix
 write.csv(expr_collapsed, output_path)
-cat("✓ Success! Saved gene-level matrix with", nrow(expr_collapsed), "unique genes to:\n", output_path, "\n")
+cat("Saved gene-level matrix with", nrow(expr_collapsed), "unique genes to:\n", output_path, "\n")
